@@ -1,8 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
 const navItems = [
-  { to: '/', label: '🏆 Tabela', end: true },
   { to: '/fixtures', label: '⚽ Mecze' },
+  { to: '/', label: '🏆 Tabela', end: true },
   { to: '/players', label: '👥 Gracze' },
   { to: '/settings', label: '⚙️ Ustawienia' },
 ];

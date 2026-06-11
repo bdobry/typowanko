@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Link } from 'react-router-dom';
 import { db } from '../db';
+import { FixturePanel } from '../components/FixturePanel';
 
 const ROUNDS = [
   'Group A','Group B','Group C','Group D','Group E','Group F',
@@ -19,13 +19,20 @@ function statusBadge(status: string) {
 
 export function Fixtures() {
   const fixtures = useLiveQuery(() => db.fixtures.orderBy('date').toArray(), []);
+  const allBets = useLiveQuery(() => db.bets.toArray(), []);
+  const allOdds = useLiveQuery(() => db.odds.toArray(), []);
+
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'locked'>('all');
   const [group, setGroup] = useState<string>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Build per-fixture lookup sets
+  const fixturesWithBets = new Set((allBets ?? []).map((b) => b.fixtureId));
+  const fixturesWithOdds = new Set((allOdds ?? []).map((o) => o.fixtureId));
 
   const filtered = (fixtures ?? []).filter((f) => {
     if (filter !== 'all' && f.status !== filter) return false;
     if (group !== 'all') {
-      // match by group label or round
       const label = f.group ?? f.round;
       if (label !== group) return false;
     }
@@ -36,6 +43,10 @@ export function Fixtures() {
   const byDate: Record<string, typeof filtered> = {};
   for (const f of filtered) {
     (byDate[f.date] = byDate[f.date] ?? []).push(f);
+  }
+
+  function toggleExpand(id: string) {
+    setExpandedId((prev) => (prev === id ? null : id));
   }
 
   return (
@@ -81,37 +92,61 @@ export function Fixtures() {
             })}
           </h2>
           <div className="space-y-1">
-            {games.map((f) => (
-              <Link
-                key={f.id}
-                to={`/fixtures/${f.id}`}
-                className="flex items-center gap-3 bg-white border border-gray-200 hover:border-gray-400 rounded-lg px-4 py-3 transition-colors group"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-gray-400">{f.group ?? f.round}</span>
-                    {f.utcTime && (
-                      <span className="text-xs text-gray-400">{f.utcTime} UTC</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-gray-900 font-medium">{f.homeTeam}</span>
-                    {f.status === 'locked' ? (
-                      <span className="text-green-600 font-bold font-mono text-sm px-2">
-                        {f.homeScore}:{f.awayScore}
+            {games.map((f) => {
+              const isExpanded = expandedId === f.id;
+              const hasBets = fixturesWithBets.has(f.id);
+              const hasOdds = fixturesWithOdds.has(f.id);
+              return (
+                <div key={f.id} className="rounded-lg overflow-hidden border border-gray-200 hover:border-gray-300 transition-colors">
+                  <button
+                    onClick={() => toggleExpand(f.id)}
+                    className="w-full flex items-center gap-3 bg-white px-4 py-3 text-left group"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-gray-400">{f.group ?? f.round}</span>
+                        {f.utcTime && (
+                          <span className="text-xs text-gray-400">{f.utcTime} UTC</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-gray-900 font-medium">{f.homeTeam}</span>
+                        {f.status === 'locked' ? (
+                          <span className="text-green-600 font-bold font-mono text-sm px-2">
+                            {f.homeScore}:{f.awayScore}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 font-mono text-sm px-2">vs</span>
+                        )}
+                        <span className="text-gray-900 font-medium">{f.awayTeam}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Status icons */}
+                      <span
+                        title={hasBets ? 'Zakłady zapisane' : 'Brak zakładów'}
+                        className={hasBets ? 'text-green-500' : 'text-gray-300'}
+                      >
+                        🎯
                       </span>
-                    ) : (
-                      <span className="text-gray-400 font-mono text-sm px-2">vs</span>
-                    )}
-                    <span className="text-gray-900 font-medium">{f.awayTeam}</span>
-                  </div>
+                      <span
+                        title={hasOdds ? 'Kursy pobrane' : 'Brak kursów'}
+                        className={hasOdds ? 'text-blue-500' : 'text-gray-300'}
+                      >
+                        📊
+                      </span>
+                      {statusBadge(f.status)}
+                      <span className={`text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>›</span>
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="border-t border-gray-100 bg-gray-50 px-4 pb-4">
+                      <FixturePanel id={f.id} />
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {statusBadge(f.status)}
-                  <span className="text-gray-400 group-hover:text-gray-600 transition-colors">›</span>
-                </div>
-              </Link>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}
