@@ -79,10 +79,29 @@ function parseOutcome(
   return null;
 }
 
+async function apiGet(url: URL): Promise<unknown> {
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    let message = `API error ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.message) message = body.message;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
 /**
  * Fetch correct-score odds from The Odds API for a specific fixture.
  *
- * Uses the free-tier endpoint (500 req/month).
+ * Uses a two-step approach:
+ *   1. GET /sports/{sport}/events — list upcoming events (no odds, low quota cost)
+ *   2. GET /sports/{sport}/events/{id}/odds?markets=correct_score — odds for the
+ *      matched event only (cheaper than fetching all events at once)
+ *
  * Sign up at https://the-odds-api.com/ to get a free API key.
  *
  * Returns the best (highest) decimal odds across all returned bookmakers
@@ -94,30 +113,14 @@ export async function fetchCorrectScoreOdds(
   date: string, // YYYY-MM-DD
   apiKey: string,
 ): Promise<CorrectScoreOdd[]> {
-  const url = new URL(`${API_BASE}/sports/${SPORT_KEY}/odds`);
-  url.searchParams.set('apiKey', apiKey);
-  url.searchParams.set('regions', 'eu,uk');
-  url.searchParams.set('markets', 'correct_score');
-  url.searchParams.set('dateFormat', 'iso');
-  url.searchParams.set('oddsFormat', 'decimal');
-
-  const res = await fetch(url.toString());
-
-  if (!res.ok) {
-    let message = `API error ${res.status}`;
-    try {
-      const body = await res.json();
-      if (body?.message) message = body.message;
-    } catch {
-      // ignore
-    }
-    throw new Error(message);
-  }
+  // Step 1: list events to find the event ID for this fixture
+  const eventsUrl = new URL(`${API_BASE}/sports/${SPORT_KEY}/events`);
+  eventsUrl.searchParams.set('apiKey', apiKey);
+  eventsUrl.searchParams.set('dateFormat', 'iso');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const events: any[] = await res.json();
+  const events = (await apiGet(eventsUrl)) as any[];
 
-  // Find the event matching this fixture
   const event = events.find((e) => {
     const eventDate = (e.commence_time as string).substring(0, 10);
     return (
@@ -134,10 +137,21 @@ export async function fetchCorrectScoreOdds(
     );
   }
 
+  // Step 2: fetch correct-score odds for that specific event
+  const oddsUrl = new URL(`${API_BASE}/sports/${SPORT_KEY}/events/${event.id}/odds`);
+  oddsUrl.searchParams.set('apiKey', apiKey);
+  oddsUrl.searchParams.set('regions', 'eu,uk');
+  oddsUrl.searchParams.set('markets', 'correct_score');
+  oddsUrl.searchParams.set('dateFormat', 'iso');
+  oddsUrl.searchParams.set('oddsFormat', 'decimal');
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const eventWithOdds = (await apiGet(oddsUrl)) as any;
+
   // Aggregate best odds per score across all bookmakers
   const bestOdds = new Map<string, number>();
 
-  for (const bookmaker of event.bookmakers ?? []) {
+  for (const bookmaker of eventWithOdds.bookmakers ?? []) {
     for (const market of bookmaker.markets ?? []) {
       if (market.key !== 'correct_score') continue;
       for (const outcome of market.outcomes ?? []) {
