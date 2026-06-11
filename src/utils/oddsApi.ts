@@ -140,7 +140,7 @@ export async function fetchCorrectScoreOdds(
   // Step 2: fetch correct-score odds for that specific event
   const oddsUrl = new URL(`${API_BASE}/sports/${SPORT_KEY}/events/${event.id}/odds`);
   oddsUrl.searchParams.set('apiKey', apiKey);
-  oddsUrl.searchParams.set('regions', 'eu,uk');
+  oddsUrl.searchParams.set('regions', 'eu,uk,us,au');
   oddsUrl.searchParams.set('markets', 'correct_score');
   oddsUrl.searchParams.set('dateFormat', 'iso');
   oddsUrl.searchParams.set('oddsFormat', 'decimal');
