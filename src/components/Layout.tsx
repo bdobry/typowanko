@@ -4,6 +4,7 @@ const navItems = [
   { to: '/', label: '🏆 Leaderboard', end: true },
   { to: '/fixtures', label: '⚽ Fixtures' },
   { to: '/players', label: '👥 Players' },
+  { to: '/settings', label: '⚙️ Settings' },
 ];
 
 export function Layout() {

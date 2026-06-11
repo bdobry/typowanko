@@ -5,6 +5,7 @@ import { Leaderboard } from './pages/Leaderboard';
 import { Players } from './pages/Players';
 import { Fixtures } from './pages/Fixtures';
 import { FixtureDetail } from './pages/FixtureDetail';
+import { Settings } from './pages/Settings';
 import { seedFixtures } from './db/seed';
 
 const router = createHashRouter([
@@ -16,6 +17,7 @@ const router = createHashRouter([
       { path: 'fixtures', element: <Fixtures /> },
       { path: 'fixtures/:id', element: <FixtureDetail /> },
       { path: 'players', element: <Players /> },
+      { path: 'settings', element: <Settings /> },
     ],
   },
 ]);

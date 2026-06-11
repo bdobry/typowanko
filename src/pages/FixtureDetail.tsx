@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Odd } from '../db';
 import { recalcFixture } from '../utils/scoring';
+import { fetchCorrectScoreOdds, ODDS_API_KEY_STORAGE_KEY } from '../utils/oddsApi';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
 
@@ -55,6 +56,11 @@ export function FixtureDetail() {
   const [editTeams, setEditTeams] = useState(false);
   const [editHome, setEditHome] = useState('');
   const [editAway, setEditAway] = useState('');
+
+  // Odds API fetch state
+  const [fetchingOdds, setFetchingOdds] = useState(false);
+  const [fetchOddsError, setFetchOddsError] = useState<string | null>(null);
+  const [fetchOddsSuccess, setFetchOddsSuccess] = useState<string | null>(null);
 
   if (!fixture) return <div className="text-gray-500 text-center py-12">Loading…</div>;
 
@@ -140,6 +146,44 @@ export function FixtureDetail() {
     }
     setOddsInputs(map);
     setShowOdds(true);
+  }
+
+  async function fetchOddsFromApi() {
+    const apiKey = localStorage.getItem(ODDS_API_KEY_STORAGE_KEY)?.trim();
+    if (!apiKey) {
+      setFetchOddsError('Brak klucza API. Ustaw go w ⚙️ Settings.');
+      return;
+    }
+    setFetchingOdds(true);
+    setFetchOddsError(null);
+    setFetchOddsSuccess(null);
+    try {
+      const results = await fetchCorrectScoreOdds(
+        fixture!.homeTeam,
+        fixture!.awayTeam,
+        fixture!.date,
+        apiKey,
+      );
+      await db.transaction('rw', db.odds, async () => {
+        for (const { homeScore, awayScore, odd } of results) {
+          const existing = await db.odds
+            .where('[fixtureId+homeScore+awayScore]')
+            .equals([fixture!.id, homeScore, awayScore])
+            .first();
+          if (existing) {
+            await db.odds.update(existing.id!, { odd });
+          } else {
+            await db.odds.add({ fixtureId: fixture!.id, homeScore, awayScore, odd });
+          }
+        }
+      });
+      setFetchOddsSuccess(`Pobrano ${results.length} kursów.`);
+      setTimeout(() => setFetchOddsSuccess(null), 4000);
+    } catch (err) {
+      setFetchOddsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFetchingOdds(false);
+    }
   }
 
   const isLocked = fixture.status === 'locked';
@@ -331,13 +375,34 @@ export function FixtureDetail() {
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-400">Odds Table</h2>
-          <button
-            onClick={showOdds ? () => setShowOdds(false) : initOddsInputs}
-            className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors"
-          >
-            {showOdds ? 'Cancel' : oddsMap.size > 0 ? 'Edit Odds' : 'Enter Odds'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchOddsFromApi}
+              disabled={fetchingOdds}
+              className="text-xs bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-blue-200 px-3 py-1.5 rounded transition-colors"
+              title="Pobierz kursy z The Odds API"
+            >
+              {fetchingOdds ? '⏳ Pobieranie…' : '🔄 Pobierz kursy'}
+            </button>
+            <button
+              onClick={showOdds ? () => setShowOdds(false) : initOddsInputs}
+              className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors"
+            >
+              {showOdds ? 'Cancel' : oddsMap.size > 0 ? 'Edit Odds' : 'Enter Odds'}
+            </button>
+          </div>
         </div>
+
+        {fetchOddsError && (
+          <p className="text-xs text-red-400 mb-3 bg-red-950 border border-red-900 rounded px-3 py-2">
+            ⚠️ {fetchOddsError}
+          </p>
+        )}
+        {fetchOddsSuccess && (
+          <p className="text-xs text-green-400 mb-3 bg-green-950 border border-green-900 rounded px-3 py-2">
+            ✓ {fetchOddsSuccess}
+          </p>
+        )}
 
         {showOdds ? (
           <div className="space-y-3">
