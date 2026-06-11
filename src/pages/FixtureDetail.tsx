@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Odd } from '../db';
 import { recalcFixture } from '../utils/scoring';
 import { fetchCorrectScoreOdds, ODDS_API_KEY_STORAGE_KEY } from '../utils/oddsApi';
+import { fetchMatchResult, getFootballDataApiKey } from '../utils/footballDataApi';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
 
@@ -61,6 +62,10 @@ export function FixtureDetail() {
   const [fetchingOdds, setFetchingOdds] = useState(false);
   const [fetchOddsError, setFetchOddsError] = useState<string | null>(null);
   const [fetchOddsSuccess, setFetchOddsSuccess] = useState<string | null>(null);
+
+  // Result fetch state
+  const [fetchingResult, setFetchingResult] = useState(false);
+  const [fetchResultError, setFetchResultError] = useState<string | null>(null);
 
   if (!fixture) return <div className="text-gray-500 text-center py-12">Loading…</div>;
 
@@ -186,6 +191,30 @@ export function FixtureDetail() {
     }
   }
 
+  async function fetchResultFromApi() {
+    const apiKey = getFootballDataApiKey();
+    if (!apiKey) {
+      setFetchResultError('Brak klucza API football-data.org. Ustaw go w ⚙️ Settings.');
+      return;
+    }
+    setFetchingResult(true);
+    setFetchResultError(null);
+    try {
+      const result = await fetchMatchResult(
+        fixture!.homeTeam,
+        fixture!.awayTeam,
+        fixture!.date,
+        apiKey,
+      );
+      setResultH(result.homeScore);
+      setResultA(result.awayScore);
+    } catch (err) {
+      setFetchResultError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFetchingResult(false);
+    }
+  }
+
   const isLocked = fixture.status === 'locked';
 
   return (
@@ -268,12 +297,25 @@ export function FixtureDetail() {
             <ScoreSelect value={resultA} onChange={setResultA} />
             <span className="text-sm text-gray-300 w-24 truncate">{fixture.awayTeam}</span>
             <button
+              onClick={fetchResultFromApi}
+              disabled={fetchingResult}
+              className="text-xs bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-blue-200 px-3 py-1.5 rounded transition-colors"
+              title="Pobierz wynik z football-data.org"
+            >
+              {fetchingResult ? '⏳ Pobieranie…' : '🔄 Pobierz wynik'}
+            </button>
+            <button
               onClick={lockFixture}
               className="ml-auto bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded font-medium text-sm transition-colors"
             >
               Lock Result
             </button>
           </div>
+          {fetchResultError && (
+            <p className="text-xs text-red-400 mt-2 bg-red-950 border border-red-900 rounded px-3 py-2">
+              ⚠️ {fetchResultError}
+            </p>
+          )}
           {!oddsMap.has(`${resultH}:${resultA}`) && (
             <p className="text-xs text-yellow-600 mt-2">⚠️ No odds set for {resultH}:{resultA} — points will be 0 for correct bets.</p>
           )}
