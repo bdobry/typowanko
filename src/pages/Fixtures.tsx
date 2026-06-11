@@ -11,9 +11,9 @@ const ROUNDS = [
 
 function statusBadge(status: string) {
   return status === 'locked' ? (
-    <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded-full">✓ Locked</span>
+    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Zakończony</span>
   ) : (
-    <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Upcoming</span>
+    <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Nadchodzący</span>
   );
 }
 
@@ -41,14 +41,14 @@ export function Fixtures() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-2xl font-bold text-white flex-1">Fixtures</h1>
+        <h1 className="text-2xl font-bold text-gray-900 flex-1">Mecze</h1>
 
         <select
           value={group}
           onChange={(e) => setGroup(e.target.value)}
-          className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-green-500"
+          className="bg-white border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:border-green-500"
         >
-          <option value="all">All rounds</option>
+          <option value="all">Wszystkie rundy</option>
           {ROUNDS.map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
@@ -61,22 +61,22 @@ export function Fixtures() {
             className={`px-3 py-1.5 rounded text-sm transition-colors ${
               filter === f
                 ? 'bg-green-700 text-white'
-                : 'bg-gray-800 text-gray-400 hover:text-white'
+                : 'bg-gray-100 text-gray-500 hover:text-gray-900'
             }`}
           >
-            {f === 'all' ? 'All' : f === 'upcoming' ? 'Upcoming' : 'Locked'}
+            {f === 'all' ? 'Wszystkie' : f === 'upcoming' ? 'Nadchodzące' : 'Zakończone'}
           </button>
         ))}
       </div>
 
       {Object.keys(byDate).length === 0 && (
-        <p className="text-gray-500 text-center py-12">No fixtures found.</p>
+        <p className="text-gray-400 text-center py-12">Brak meczów.</p>
       )}
 
       {Object.entries(byDate).map(([date, games]) => (
         <div key={date}>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 mt-4">
-            {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', {
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">
+            {new Date(date + 'T12:00:00').toLocaleDateString('pl-PL', {
               weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
             })}
           </h2>
@@ -85,30 +85,30 @@ export function Fixtures() {
               <Link
                 key={f.id}
                 to={`/fixtures/${f.id}`}
-                className="flex items-center gap-3 bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-lg px-4 py-3 transition-colors group"
+                className="flex items-center gap-3 bg-white border border-gray-200 hover:border-gray-400 rounded-lg px-4 py-3 transition-colors group"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-gray-500">{f.group ?? f.round}</span>
+                    <span className="text-xs text-gray-400">{f.group ?? f.round}</span>
                     {f.utcTime && (
-                      <span className="text-xs text-gray-600">{f.utcTime} UTC</span>
+                      <span className="text-xs text-gray-400">{f.utcTime} UTC</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-white font-medium">{f.homeTeam}</span>
+                    <span className="text-gray-900 font-medium">{f.homeTeam}</span>
                     {f.status === 'locked' ? (
-                      <span className="text-green-400 font-bold font-mono text-sm px-2">
+                      <span className="text-green-600 font-bold font-mono text-sm px-2">
                         {f.homeScore}:{f.awayScore}
                       </span>
                     ) : (
-                      <span className="text-gray-600 font-mono text-sm px-2">vs</span>
+                      <span className="text-gray-400 font-mono text-sm px-2">vs</span>
                     )}
-                    <span className="text-white font-medium">{f.awayTeam}</span>
+                    <span className="text-gray-900 font-medium">{f.awayTeam}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {statusBadge(f.status)}
-                  <span className="text-gray-600 group-hover:text-gray-400 transition-colors">›</span>
+                  <span className="text-gray-400 group-hover:text-gray-600 transition-colors">›</span>
                 </div>
               </Link>
             ))}
