@@ -1,7 +1,19 @@
-const API_BASE = 'https://api.the-odds-api.com/v4';
-const SPORT_KEY = 'soccer_fifa_world_cup';
+/**
+ * Odds fetcher using api-football.com (api-sports.io).
+ *
+ * Free plan: 100 requests/day — more than enough for WC 2026 with a few players.
+ * Sign up at https://dashboard.api-football.com/register to get a free API key.
+ *
+ * Two-step approach:
+ *   1. GET /fixtures?date=&league=1&season=2026 — find fixture ID by team names and date
+ *   2. GET /odds?fixture={id}                   — fetch odds, extract "Exact Score" market
+ */
 
-export const ODDS_API_KEY_STORAGE_KEY = 'oddsApiKey';
+const API_BASE = 'https://v3.football.api-sports.io';
+const WC_LEAGUE_ID = 1; // FIFA World Cup
+const WC_SEASON = 2026;
+
+export const ODDS_API_KEY_STORAGE_KEY = 'apiFootballKey';
 
 export interface CorrectScoreOdd {
   homeScore: number;
@@ -9,15 +21,31 @@ export interface CorrectScoreOdd {
   odd: number;
 }
 
+// api-football.com may block CORS for non-registered origins; route through proxy on deployed builds
+function withCorsProxy(url: string): string {
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    return url;
+  }
+  return `https://corsproxy.io/?${encodeURIComponent(url)}`;
+}
+
 // Map of API team name variants → canonical name used in fixtures
 const TEAM_NAME_ALIASES: Record<string, string> = {
   'bosnia and herzegovina': 'Bosnia & Herzegovina',
   "cote d'ivoire": 'Ivory Coast',
+  "côte d'ivoire": 'Ivory Coast',
   'ivory coast': 'Ivory Coast',
   'cape verde islands': 'Cape Verde',
+  'cape verde': 'Cape Verde',
   'united states': 'USA',
+  'usa': 'USA',
   'curacao': 'Curaçao',
+  'curaçao': 'Curaçao',
   'korea republic': 'South Korea',
+  'republic of korea': 'South Korea',
   'republic of ireland': 'Ireland',
   'new zealand': 'New Zealand',
 };
@@ -34,53 +62,37 @@ function teamsMatch(apiName: string, fixtureName: string): boolean {
 }
 
 /**
- * Parse a correct-score outcome name like:
- *   "Mexico 1-0 South Africa"  → { homeScore: 1, awayScore: 0 }  (Mexico = homeTeam)
- *   "South Africa 1-0 Mexico"  → { homeScore: 0, awayScore: 1 }  (South Africa = awayTeam)
- *   "Draw 1-1"                 → { homeScore: 1, awayScore: 1 }
+ * Parse a correct-score outcome value from api-football.com, e.g.:
+ *   "Home 2:1"  → { homeScore: 2, awayScore: 1 }
+ *   "Away 0:1"  → { homeScore: 0, awayScore: 1 }
+ *   "Draw 1:1"  → { homeScore: 1, awayScore: 1 }
+ *   "2:1"       → { homeScore: 2, awayScore: 1 }  (some bookmakers omit the prefix)
  */
-function parseOutcome(
-  name: string,
-  homeTeam: string,
-  awayTeam: string,
-): { homeScore: number; awayScore: number } | null {
-  const scoreMatch = name.match(/(\d+)-(\d+)/);
+function parseOutcome(value: string): { homeScore: number; awayScore: number } | null {
+  const scoreMatch = value.match(/(\d+)[:\-](\d+)/);
   if (!scoreMatch) return null;
 
   const n1 = parseInt(scoreMatch[1], 10);
   const n2 = parseInt(scoreMatch[2], 10);
 
-  const lower = name.toLowerCase();
+  // Scores outside the app's supported range (0–5)
+  if (n1 > 5 || n2 > 5) return null;
 
-  if (lower.startsWith('draw')) {
-    return { homeScore: n1, awayScore: n2 };
-  }
-
-  // Text before the score indicates which team leads
-  const beforeScore = name.substring(0, name.search(/\d+-\d+/)).trim();
-
-  if (teamsMatch(beforeScore, homeTeam)) {
-    // Home team is the one with n1 goals
-    return { homeScore: n1, awayScore: n2 };
-  }
-  if (teamsMatch(beforeScore, awayTeam)) {
-    // Away team is the one with n1 goals
-    return { homeScore: n2, awayScore: n1 };
-  }
-
-  // Fallback: try matching against the full outcome string
-  if (lower.includes(homeTeam.toLowerCase().slice(0, 4))) {
-    return { homeScore: n1, awayScore: n2 };
-  }
-  if (lower.includes(awayTeam.toLowerCase().slice(0, 4))) {
-    return { homeScore: n2, awayScore: n1 };
-  }
-
-  return null;
+  // The score is always expressed as home:away regardless of the "Home"/"Away"/"Draw" prefix
+  return { homeScore: n1, awayScore: n2 };
 }
 
-async function apiGet(url: URL): Promise<unknown> {
-  const res = await fetch(url.toString());
+const CORRECT_SCORE_BET_NAMES = ['exact score', 'correct score'];
+
+function isCorrectScoreBet(name: string): boolean {
+  const lower = name.toLowerCase();
+  return CORRECT_SCORE_BET_NAMES.some((n) => lower.includes(n));
+}
+
+async function apiGet(url: URL, apiKey: string): Promise<unknown> {
+  const res = await fetch(withCorsProxy(url.toString()), {
+    headers: { 'x-apisports-key': apiKey },
+  });
   if (!res.ok) {
     let message = `API error ${res.status}`;
     try {
@@ -91,79 +103,76 @@ async function apiGet(url: URL): Promise<unknown> {
     }
     throw new Error(message);
   }
-  return res.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = (await res.json()) as any;
+  // api-football returns errors in a dedicated field even on HTTP 200
+  if (data?.errors && Object.keys(data.errors).length > 0) {
+    const firstError = Object.values(data.errors)[0];
+    throw new Error(String(firstError));
+  }
+  return data;
 }
 
-/**
- * Fetch correct-score odds from The Odds API for a specific fixture.
- *
- * Uses a two-step approach:
- *   1. GET /sports/{sport}/events — list upcoming events (no odds, low quota cost)
- *   2. GET /sports/{sport}/events/{id}/odds?markets=correct_score — odds for the
- *      matched event only (cheaper than fetching all events at once)
- *
- * Sign up at https://the-odds-api.com/ to get a free API key.
- *
- * Returns the best (highest) decimal odds across all returned bookmakers
- * for each distinct home:away score.
- */
 export async function fetchCorrectScoreOdds(
   homeTeam: string,
   awayTeam: string,
   date: string, // YYYY-MM-DD
   apiKey: string,
 ): Promise<CorrectScoreOdd[]> {
-  // Step 1: list events to find the event ID for this fixture
-  const eventsUrl = new URL(`${API_BASE}/sports/${SPORT_KEY}/events`);
-  eventsUrl.searchParams.set('apiKey', apiKey);
-  eventsUrl.searchParams.set('dateFormat', 'iso');
+  // Step 1: resolve fixture ID from date + team names
+  const fixturesUrl = new URL(`${API_BASE}/fixtures`);
+  fixturesUrl.searchParams.set('date', date);
+  fixturesUrl.searchParams.set('league', String(WC_LEAGUE_ID));
+  fixturesUrl.searchParams.set('season', String(WC_SEASON));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const events = (await apiGet(eventsUrl)) as any[];
+  const fixturesData = (await apiGet(fixturesUrl, apiKey)) as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fixturesList: any[] = fixturesData.response ?? [];
 
-  const event = events.find((e) => {
-    const eventDate = (e.commence_time as string).substring(0, 10);
-    return (
-      eventDate === date &&
-      teamsMatch(e.home_team, homeTeam) &&
-      teamsMatch(e.away_team, awayTeam)
-    );
-  });
+  const fixtureEntry = fixturesList.find(
+    (f) =>
+      teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
+      teamsMatch(f.teams?.away?.name ?? '', awayTeam),
+  );
 
-  if (!event) {
+  if (!fixtureEntry) {
     throw new Error(
-      `No event found for "${homeTeam} vs ${awayTeam}" on ${date}. ` +
-        `The match may not yet be listed by the API, or the team names differ.`,
+      `Nie znaleziono meczu "${homeTeam} vs ${awayTeam}" na ${date}. ` +
+        `Mecz może jeszcze nie być dostępny w API lub nazwy drużyn się różnią.`,
     );
   }
 
-  // Step 2: fetch correct-score odds for that specific event
-  const oddsUrl = new URL(`${API_BASE}/sports/${SPORT_KEY}/events/${event.id}/odds`);
-  oddsUrl.searchParams.set('apiKey', apiKey);
-  oddsUrl.searchParams.set('regions', 'eu,uk,us,au');
-  oddsUrl.searchParams.set('markets', 'correct_score');
-  oddsUrl.searchParams.set('dateFormat', 'iso');
-  oddsUrl.searchParams.set('oddsFormat', 'decimal');
+  const fixtureId: number = fixtureEntry.fixture.id;
+
+  // Step 2: fetch odds for that fixture and extract "Exact Score" market
+  const oddsUrl = new URL(`${API_BASE}/odds`);
+  oddsUrl.searchParams.set('fixture', String(fixtureId));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const eventWithOdds = (await apiGet(oddsUrl)) as any;
+  const oddsData = (await apiGet(oddsUrl, apiKey)) as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oddsResponse: any[] = oddsData.response ?? [];
 
-  // Aggregate best odds per score across all bookmakers
   const bestOdds = new Map<string, number>();
 
-  for (const bookmaker of eventWithOdds.bookmakers ?? []) {
-    for (const market of bookmaker.markets ?? []) {
-      if (market.key !== 'correct_score') continue;
-      for (const outcome of market.outcomes ?? []) {
-        const parsed = parseOutcome(outcome.name, homeTeam, awayTeam);
-        if (!parsed) continue;
-        const { homeScore, awayScore } = parsed;
-        // Only keep scores in 0-5 range (what the app supports)
-        if (homeScore > 5 || awayScore > 5) continue;
-        const key = `${homeScore}:${awayScore}`;
-        const existing = bestOdds.get(key) ?? 0;
-        if (outcome.price > existing) {
-          bestOdds.set(key, outcome.price);
+  for (const entry of oddsResponse) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const bookmaker of (entry.bookmakers ?? []) as any[]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const bet of (bookmaker.bets ?? []) as any[]) {
+        if (!isCorrectScoreBet(bet.name)) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const outcome of (bet.values ?? []) as any[]) {
+          const parsed = parseOutcome(outcome.value ?? '');
+          if (!parsed) continue;
+          const { homeScore, awayScore } = parsed;
+          const odd = parseFloat(outcome.odd);
+          if (isNaN(odd) || odd <= 0) continue;
+          const key = `${homeScore}:${awayScore}`;
+          if (odd > (bestOdds.get(key) ?? 0)) {
+            bestOdds.set(key, odd);
+          }
         }
       }
     }
@@ -171,9 +180,8 @@ export async function fetchCorrectScoreOdds(
 
   if (bestOdds.size === 0) {
     throw new Error(
-      `Event found but no correct-score odds returned. ` +
-        `The "correct_score" market may not be available for this match yet, ` +
-        `or your API plan does not include it.`,
+      `Znaleziono mecz (ID: ${fixtureId}), ale brak kursów "Exact Score". ` +
+        `Kursy mogą być niedostępne przed meczem lub wymagają wyższego planu API.`,
     );
   }
 

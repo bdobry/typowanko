@@ -111,22 +111,22 @@ export function Settings() {
         </div>
       </div>
 
-      {/* The Odds API */}
+      {/* api-football.com */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-gray-300 mb-1">The Odds API — kursy bukmacherskie</h2>
+          <h2 className="text-sm font-semibold text-gray-300 mb-1">api-football.com — kursy bukmacherskie</h2>
           <p className="text-xs text-gray-500 leading-relaxed">
-            Używany do automatycznego pobierania kursów na dokładny wynik (correct score)
-            dla meczów MŚ 2026. Darmowy plan: 500 zapytań / miesiąc.{' '}
+            Używany do automatycznego pobierania kursów na dokładny wynik (Exact Score)
+            dla meczów MŚ 2026. Darmowy plan: 100 zapytań / dzień — wystarczający dla całego turnieju.{' '}
             <a
-              href="https://the-odds-api.com/"
+              href="https://dashboard.api-football.com/register"
               target="_blank"
               rel="noopener noreferrer"
               className="text-green-400 hover:text-green-300 underline"
             >
-              Zarejestruj się na the-odds-api.com
+              Zarejestruj się na api-football.com
             </a>{' '}
-            żeby otrzymać klucz.
+            żeby otrzymać darmowy klucz.
           </p>
         </div>
 
@@ -163,8 +163,9 @@ export function Settings() {
 
         <div className="border-t border-gray-800 pt-3 space-y-1 text-xs text-gray-500">
           <p>📍 Klucz jest przechowywany tylko lokalnie w Twojej przeglądarce.</p>
-          <p>📊 Sport key: <code className="text-gray-400">soccer_fifa_world_cup</code></p>
-          <p>📈 Rynek: <code className="text-gray-400">correct_score</code> (regiony: eu, uk, us, au) — pobierany per mecz</p>
+          <p>🏆 Liga: <code className="text-gray-400">1</code> (FIFA World Cup), sezon <code className="text-gray-400">2026</code></p>
+          <p>📡 Endpoint: <code className="text-gray-400">GET /fixtures</code> → <code className="text-gray-400">GET /odds?fixture=id</code></p>
+          <p>📈 Rynek: <code className="text-gray-400">Exact Score</code> — najlepszy kurs spośród wszystkich bukmacherów</p>
         </div>
       </div>
     </div>
