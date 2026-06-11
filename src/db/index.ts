@@ -29,6 +29,13 @@ export interface Odd {
   homeScore: number;
   awayScore: number;
   odd: number;
+  provider?: string; // e.g., 'api-football'
+  bookmakerId?: number;
+  bookmakerName?: string; // e.g., 'Bet365'
+  market?: string; // e.g., 'correct_score'
+  fetchedAt?: number; // timestamp
+  manuallyEdited?: boolean; // flag to prevent overwriting manually edited odds
+  locked?: boolean; // flag to prevent any modification
 }
 
 export interface Bet {

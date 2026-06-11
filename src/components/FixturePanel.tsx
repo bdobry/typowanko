@@ -103,7 +103,13 @@ export function FixturePanel({ id }: { id: string }) {
       const odd = parseFloat(val);
       if (isNaN(odd) || odd <= 0) continue;
       const [h, a] = key.split(':').map(Number);
-      toSave.push({ fixtureId: fixture!.id, homeScore: h, awayScore: a, odd });
+      toSave.push({
+        fixtureId: fixture!.id,
+        homeScore: h,
+        awayScore: a,
+        odd,
+        manuallyEdited: true, // Mark as manually edited
+      });
     }
     await db.transaction('rw', db.odds, async () => {
       for (const o of toSave) {
@@ -112,7 +118,7 @@ export function FixturePanel({ id }: { id: string }) {
           .equals([o.fixtureId, o.homeScore, o.awayScore])
           .first();
         if (existing) {
-          await db.odds.update(existing.id!, { odd: o.odd });
+          await db.odds.update(existing.id!, { odd: o.odd, manuallyEdited: true });
         } else {
           await db.odds.add(o);
         }
@@ -158,21 +164,58 @@ export function FixturePanel({ id }: { id: string }) {
         fixture!.date,
         apiKey,
       );
+      
+      let updatedCount = 0;
+      let skippedCount = 0;
+      
       await db.transaction('rw', db.odds, async () => {
-        for (const { homeScore, awayScore, odd } of results) {
+        for (const { homeScore, awayScore, odd, bookmakerId, bookmakerName, market, fetchedAt } of results) {
           const existing = await db.odds
             .where('[fixtureId+homeScore+awayScore]')
             .equals([fixture!.id, homeScore, awayScore])
             .first();
+          
+          // Do not overwrite manually edited or locked odds
+          if (existing && (existing.manuallyEdited || existing.locked)) {
+            skippedCount++;
+            continue;
+          }
+          
           if (existing) {
-            await db.odds.update(existing.id!, { odd });
+            await db.odds.update(existing.id!, {
+              odd,
+              provider: 'api-football',
+              bookmakerId,
+              bookmakerName,
+              market,
+              fetchedAt,
+            });
+            updatedCount++;
           } else {
-            await db.odds.add({ fixtureId: fixture!.id, homeScore, awayScore, odd });
+            await db.odds.add({
+              fixtureId: fixture!.id,
+              homeScore,
+              awayScore,
+              odd,
+              provider: 'api-football',
+              bookmakerId,
+              bookmakerName,
+              market,
+              fetchedAt,
+              manuallyEdited: false,
+              locked: false,
+            });
+            updatedCount++;
           }
         }
       });
-      setFetchOddsSuccess(`Pobrano ${results.length} kursów.`);
-      setTimeout(() => setFetchOddsSuccess(null), 4000);
+      
+      let message = `Pobrano ${updatedCount} kursów z Bet365.`;
+      if (skippedCount > 0) {
+        message += ` Pominięto ${skippedCount} ręcznie edytowanych/zablokowanych kursów.`;
+      }
+      setFetchOddsSuccess(message);
+      setTimeout(() => setFetchOddsSuccess(null), 5000);
     } catch (err) {
       setFetchOddsError(err instanceof Error ? err.message : String(err));
     } finally {
