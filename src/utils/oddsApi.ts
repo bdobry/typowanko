@@ -77,7 +77,7 @@ function teamsMatch(apiName: string, fixtureName: string): boolean {
  *   "2:1"       → { homeScore: 2, awayScore: 1 }  (some bookmakers omit the prefix)
  */
 function parseOutcome(value: string): { homeScore: number; awayScore: number } | null {
-  const scoreMatch = value.match(/(\d+)[:\-](\d+)/);
+  const scoreMatch = value.match(/(\d+)[:‐](\d+)/);
   if (!scoreMatch) return null;
 
   const n1 = parseInt(scoreMatch[1], 10);
