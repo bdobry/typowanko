@@ -1,8 +1,9 @@
 /**
  * Odds fetcher using api-football.com (api-sports.io).
  *
- * Free plan: 100 requests/day — more than enough for WC 2026 with a few players.
- * Sign up at https://dashboard.api-football.com/register to get a free API key.
+ * Pro plan: no CORS restrictions, no daily request cap issues.
+ * The API key is configured via the VITE_API_FOOTBALL_KEY build-time env variable
+ * (set as a GitHub Actions secret) and can be overridden per-browser in Settings.
  *
  * Two-step approach:
  *   1. GET /fixtures?date=&league=1&season=2026 — find fixture ID by team names and date
@@ -15,21 +16,19 @@ const WC_SEASON = 2026;
 
 export const ODDS_API_KEY_STORAGE_KEY = 'apiFootballKey';
 
+/** Returns the effective API key: localStorage override or build-time env var. */
+export function getApiFootballKey(): string {
+  return (
+    localStorage.getItem(ODDS_API_KEY_STORAGE_KEY)?.trim() ||
+    (import.meta.env.VITE_API_FOOTBALL_KEY as string | undefined) ||
+    ''
+  );
+}
+
 export interface CorrectScoreOdd {
   homeScore: number;
   awayScore: number;
   odd: number;
-}
-
-// api-football.com may block CORS for non-registered origins; route through proxy on deployed builds
-function withCorsProxy(url: string): string {
-  if (
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ) {
-    return url;
-  }
-  return `https://corsproxy.io/?${encodeURIComponent(url)}`;
 }
 
 // Map of API team name variants → canonical name used in fixtures
@@ -90,7 +89,7 @@ function isCorrectScoreBet(name: string): boolean {
 }
 
 async function apiGet(url: URL, apiKey: string): Promise<unknown> {
-  const res = await fetch(withCorsProxy(url.toString()), {
+  const res = await fetch(url.toString(), {
     headers: { 'x-apisports-key': apiKey },
   });
   if (!res.ok) {

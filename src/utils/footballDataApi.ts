@@ -1,34 +1,16 @@
-const API_BASE = 'https://api.football-data.org/v4';
+import { getApiFootballKey, ODDS_API_KEY_STORAGE_KEY } from './oddsApi';
 
-// football-data.org free tier only allows http://localhost as the CORS origin.
-// For any other deployment (e.g. GitHub Pages) we route through a CORS proxy.
-function withCorsProxy(url: string): string {
-  if (
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ) {
-    return url;
-  }
-  return `https://corsproxy.io/?${encodeURIComponent(url)}`;
-}
+const API_BASE = 'https://v3.football.api-sports.io';
+const WC_LEAGUE_ID = 1; // FIFA World Cup
+const WC_SEASON = 2026;
 
-const WC_2026_COMPETITION_ID = 2000;
-
-export const FOOTBALL_DATA_KEY_STORAGE_KEY = 'footballDataApiKey';
+// Re-export so that external code that imported these from this module still works.
+export { getApiFootballKey as getFootballDataApiKey, ODDS_API_KEY_STORAGE_KEY as FOOTBALL_DATA_KEY_STORAGE_KEY };
 
 export interface MatchResult {
   homeScore: number;
   awayScore: number;
   status: string;
-}
-
-/** Returns the effective API key: localStorage override or build-time env var. */
-export function getFootballDataApiKey(): string {
-  return (
-    localStorage.getItem(FOOTBALL_DATA_KEY_STORAGE_KEY)?.trim() ||
-    (import.meta.env.VITE_FOOTBALL_DATA_API_KEY as string | undefined) ||
-    ''
-  );
 }
 
 // Map of API team name variants → canonical names used in fixtures
@@ -62,15 +44,15 @@ function teamsMatch(apiName: string, fixtureName: string): boolean {
 }
 
 /**
- * Fetch the final score for a specific match from football-data.org.
+ * Fetch the final score for a specific match from v3.football.api-sports.io.
  *
- * Docs: https://docs.football-data.org/general/v4/index.html
- * Free tier: 10 req/min. Sign up at https://www.football-data.org/
+ * Docs: https://www.api-football.com/documentation-v3
+ * Pro plan: no CORS restrictions.
  *
  * @param homeTeam  Fixture home team name (as stored in the app)
  * @param awayTeam  Fixture away team name
  * @param date      Match date in YYYY-MM-DD format
- * @param apiKey    football-data.org API key
+ * @param apiKey    api-sports.io API key
  */
 export async function fetchMatchResult(
   homeTeam: string,
@@ -78,12 +60,13 @@ export async function fetchMatchResult(
   date: string,
   apiKey: string,
 ): Promise<MatchResult> {
-  const url = new URL(`${API_BASE}/competitions/${WC_2026_COMPETITION_ID}/matches`);
-  url.searchParams.set('dateFrom', date);
-  url.searchParams.set('dateTo', date);
+  const url = new URL(`${API_BASE}/fixtures`);
+  url.searchParams.set('date', date);
+  url.searchParams.set('league', String(WC_LEAGUE_ID));
+  url.searchParams.set('season', String(WC_SEASON));
 
-  const res = await fetch(withCorsProxy(url.toString()), {
-    headers: { 'X-Auth-Token': apiKey },
+  const res = await fetch(url.toString(), {
+    headers: { 'x-apisports-key': apiKey },
   });
 
   if (!res.ok) {
@@ -99,32 +82,39 @@ export async function fetchMatchResult(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: any = await res.json();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const matches: any[] = data.matches ?? [];
 
-  const match = matches.find(
-    (m) =>
-      teamsMatch(m.homeTeam?.name ?? '', homeTeam) &&
-      teamsMatch(m.awayTeam?.name ?? '', awayTeam),
+  if (data?.errors && Object.keys(data.errors).length > 0) {
+    const firstError = Object.values(data.errors)[0];
+    throw new Error(String(firstError));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fixtures: any[] = data.response ?? [];
+
+  const entry = fixtures.find(
+    (f) =>
+      teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
+      teamsMatch(f.teams?.away?.name ?? '', awayTeam),
   );
 
-  if (!match) {
+  if (!entry) {
     throw new Error(
       `Nie znaleziono meczu "${homeTeam} vs ${awayTeam}" na ${date}. ` +
         `Mecz może jeszcze nie być dostępny w API lub nazwy drużyn się różnią.`,
     );
   }
 
-  const status: string = match.status ?? 'UNKNOWN';
+  const status: string = entry.fixture?.status?.short ?? 'UNKNOWN';
+  const FINISHED_STATUSES = ['FT', 'AET', 'PEN'];
 
-  if (status !== 'FINISHED') {
+  if (!FINISHED_STATUSES.includes(status)) {
     throw new Error(
       `Mecz "${homeTeam} vs ${awayTeam}" ma status: ${status}. Wynik dostępny tylko po zakończeniu meczu.`,
     );
   }
 
-  const homeScore: number = match.score?.fullTime?.home;
-  const awayScore: number = match.score?.fullTime?.away;
+  const homeScore: number = entry.goals?.home;
+  const awayScore: number = entry.goals?.away;
 
   if (homeScore == null || awayScore == null) {
     throw new Error(`Brak wyniku dla meczu "${homeTeam} vs ${awayTeam}".`);
