@@ -1,4 +1,17 @@
 const API_BASE = 'https://api.football-data.org/v4';
+
+// football-data.org free tier only allows http://localhost as the CORS origin.
+// For any other deployment (e.g. GitHub Pages) we route through a CORS proxy.
+function withCorsProxy(url: string): string {
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    return url;
+  }
+  return `https://corsproxy.io/?${encodeURIComponent(url)}`;
+}
+
 const WC_2026_COMPETITION_ID = 2000;
 
 export const FOOTBALL_DATA_KEY_STORAGE_KEY = 'footballDataApiKey';
@@ -69,7 +82,7 @@ export async function fetchMatchResult(
   url.searchParams.set('dateFrom', date);
   url.searchParams.set('dateTo', date);
 
-  const res = await fetch(url.toString(), {
+  const res = await fetch(withCorsProxy(url.toString()), {
     headers: { 'X-Auth-Token': apiKey },
   });
 
