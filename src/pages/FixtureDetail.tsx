@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Odd } from '../db';
 import { recalcFixture } from '../utils/scoring';
-import { fetchCorrectScoreOdds, ODDS_API_KEY_STORAGE_KEY } from '../utils/oddsApi';
-import { fetchMatchResult, getFootballDataApiKey } from '../utils/footballDataApi';
+import { fetchCorrectScoreOdds, getApiFootballKey } from '../utils/oddsApi';
+import { fetchMatchResult } from '../utils/footballDataApi';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
 
@@ -154,7 +154,7 @@ export function FixtureDetail() {
   }
 
   async function fetchOddsFromApi() {
-    const apiKey = localStorage.getItem(ODDS_API_KEY_STORAGE_KEY)?.trim();
+    const apiKey = getApiFootballKey();
     if (!apiKey) {
       setFetchOddsError('Brak klucza API. Ustaw go w ⚙️ Settings.');
       return;
@@ -192,9 +192,9 @@ export function FixtureDetail() {
   }
 
   async function fetchResultFromApi() {
-    const apiKey = getFootballDataApiKey();
+    const apiKey = getApiFootballKey();
     if (!apiKey) {
-      setFetchResultError('Brak klucza API football-data.org. Ustaw go w ⚙️ Settings.');
+      setFetchResultError('Brak klucza API api-football.com. Ustaw go w ⚙️ Settings.');
       return;
     }
     setFetchingResult(true);
