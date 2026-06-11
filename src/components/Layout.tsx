@@ -36,7 +36,7 @@ export function Layout() {
         <Outlet />
       </main>
       <footer className="text-center text-xs text-gray-400 py-3">
-        MŚ 2026 · Wszystkie dane przechowywane lokalnie w przeglądarce
+        MŚ 2026 · Wszystkie dane przechowywane lokalnie w przeglądarce · build {__APP_BUILD__}
       </footer>
     </div>
   );

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Odd } from '../db';
 import { recalcFixture } from '../utils/scoring';
-import { fetchCorrectScoreOdds, getApiFootballKey } from '../utils/oddsApi';
+import { fetchAllOdds, getApiFootballKey } from '../utils/oddsApi';
 import { fetchMatchResult } from '../utils/footballDataApi';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
@@ -35,6 +35,7 @@ export function FixturePanel({ id }: { id: string }) {
   const bets = useLiveQuery(() => db.bets.where('fixtureId').equals(id).toArray(), [id]);
   const odds = useLiveQuery(() => db.odds.where('fixtureId').equals(id).toArray(), [id]);
   const scores = useLiveQuery(() => db.scores.where('fixtureId').equals(id).toArray(), [id]);
+  const matchOdd = useLiveQuery(() => db.matchOdds.where('fixtureId').equals(id).first(), [id]);
 
   const [resultH, setResultH] = useState(0);
   const [resultA, setResultA] = useState(0);
@@ -158,7 +159,7 @@ export function FixturePanel({ id }: { id: string }) {
     setFetchOddsError(null);
     setFetchOddsSuccess(null);
     try {
-      const results = await fetchCorrectScoreOdds(
+      const { correctScoreOdds, match1X2 } = await fetchAllOdds(
         fixture!.homeTeam,
         fixture!.awayTeam,
         fixture!.date,
@@ -168,8 +169,8 @@ export function FixturePanel({ id }: { id: string }) {
       let updatedCount = 0;
       let skippedCount = 0;
       
-      await db.transaction('rw', db.odds, async () => {
-        for (const { homeScore, awayScore, odd, bookmakerId, bookmakerName, market, fetchedAt } of results) {
+      await db.transaction('rw', db.odds, db.matchOdds, async () => {
+        for (const { homeScore, awayScore, odd, bookmakerId, bookmakerName, market, fetchedAt } of correctScoreOdds) {
           const existing = await db.odds
             .where('[fixtureId+homeScore+awayScore]')
             .equals([fixture!.id, homeScore, awayScore])
@@ -208,9 +209,38 @@ export function FixturePanel({ id }: { id: string }) {
             updatedCount++;
           }
         }
+
+        if (match1X2) {
+          const existingMatchOdd = await db.matchOdds.where('fixtureId').equals(fixture!.id).first();
+          if (existingMatchOdd && (existingMatchOdd.manuallyEdited || existingMatchOdd.locked)) {
+            skippedCount++;
+          } else if (existingMatchOdd) {
+            await db.matchOdds.update(existingMatchOdd.id!, {
+              homeOdd: match1X2.homeOdd,
+              drawOdd: match1X2.drawOdd,
+              awayOdd: match1X2.awayOdd,
+              bookmakerId: match1X2.bookmakerId,
+              bookmakerName: match1X2.bookmakerName,
+              fetchedAt: match1X2.fetchedAt,
+            });
+          } else {
+            await db.matchOdds.add({
+              fixtureId: fixture!.id,
+              homeOdd: match1X2.homeOdd,
+              drawOdd: match1X2.drawOdd,
+              awayOdd: match1X2.awayOdd,
+              bookmakerId: match1X2.bookmakerId,
+              bookmakerName: match1X2.bookmakerName,
+              fetchedAt: match1X2.fetchedAt,
+            });
+          }
+        }
       });
       
       let message = `Pobrano ${updatedCount} kursów z Bet365.`;
+      if (match1X2) {
+        message += ` Kurs 1X2: 1=${match1X2.homeOdd} X=${match1X2.drawOdd} 2=${match1X2.awayOdd}.`;
+      }
       if (skippedCount > 0) {
         message += ` Pominięto ${skippedCount} ręcznie edytowanych/zablokowanych kursów.`;
       }
@@ -343,7 +373,10 @@ export function FixturePanel({ id }: { id: string }) {
             </p>
           )}
           {!oddsMap.has(`${resultH}:${resultA}`) && (
-            <p className="text-xs text-yellow-600 mt-2">⚠️ Brak kursu dla {resultH}:{resultA} — trafione zakłady dadzą 0 punktów.</p>
+            <p className="text-xs text-yellow-600 mt-2">
+              ⚠️ Brak kursu dla {resultH}:{resultA} — trafione dokładne zakłady dadzą 0 punktów.
+              {matchOdd && ' Kursy 1X2 (remis/wygrana/przegrana) są dostępne i zostaną użyte dla zakładów z trafnym typem.'}
+            </p>
           )}
         </div>
       )}
@@ -414,7 +447,12 @@ export function FixturePanel({ id }: { id: string }) {
                     <span className="text-gray-400 italic text-xs">brak zakładu</span>
                   )}
                   {score && (
-                    <span className="text-green-600 font-bold">+{score.points.toFixed(2)} pkt</span>
+                    <span className="text-green-600 font-bold">
+                      +{score.points.toFixed(2)} pkt
+                      {score.pointType === 'outcome' && (
+                        <span className="text-green-500 font-normal text-xs ml-1">(typ)</span>
+                      )}
+                    </span>
                   )}
                   {isLocked && bet && !score && (
                     <span className="text-gray-400 text-xs">chybił</span>
@@ -553,6 +591,26 @@ export function FixturePanel({ id }: { id: string }) {
           </div>
         ) : (
           <p className="text-gray-400 text-sm">Brak kursów.</p>
+        )}
+
+        {matchOdd && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <p className="text-xs text-gray-400 mb-2">Kurs 1X2 (typ wyniku)</p>
+            <div className="flex gap-3 text-xs font-mono">
+              <span className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-center">
+                <span className="text-gray-400 block text-xs">1 (gosp.)</span>
+                <span className="text-gray-700 font-bold">{matchOdd.homeOdd.toFixed(2)}</span>
+              </span>
+              <span className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-center">
+                <span className="text-gray-400 block text-xs">X (remis)</span>
+                <span className="text-gray-700 font-bold">{matchOdd.drawOdd.toFixed(2)}</span>
+              </span>
+              <span className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-center">
+                <span className="text-gray-400 block text-xs">2 (gość)</span>
+                <span className="text-gray-700 font-bold">{matchOdd.awayOdd.toFixed(2)}</span>
+              </span>
+            </div>
+          </div>
         )}
       </div>
     </div>
