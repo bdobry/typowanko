@@ -1,0 +1,128 @@
+import type { Fixture } from '../db';
+
+// All WC 2026 group stage fixtures from official draw (December 2024)
+// Knockout stage placeholders — teams will be filled in automatically
+export const WC2026_FIXTURES: Omit<Fixture, 'status'>[] = [
+  // ── GROUP A ──────────────────────────────────────────────────────────────────
+  { id: 'A1', round: 'Matchday 1', group: 'Group A', homeTeam: 'Mexico', awayTeam: 'South Africa', date: '2026-06-11', utcTime: '19:00', venue: 'Mexico City' },
+  { id: 'A2', round: 'Matchday 1', group: 'Group A', homeTeam: 'South Korea', awayTeam: 'Czech Republic', date: '2026-06-12', utcTime: '02:00', venue: 'Guadalajara' },
+  { id: 'A3', round: 'Matchday 8', group: 'Group A', homeTeam: 'Czech Republic', awayTeam: 'South Africa', date: '2026-06-18', utcTime: '16:00', venue: 'Atlanta' },
+  { id: 'A4', round: 'Matchday 8', group: 'Group A', homeTeam: 'Mexico', awayTeam: 'South Korea', date: '2026-06-19', utcTime: '01:00', venue: 'Guadalajara' },
+  { id: 'A5', round: 'Matchday 14', group: 'Group A', homeTeam: 'Czech Republic', awayTeam: 'Mexico', date: '2026-06-25', utcTime: '01:00', venue: 'Mexico City' },
+  { id: 'A6', round: 'Matchday 14', group: 'Group A', homeTeam: 'South Africa', awayTeam: 'South Korea', date: '2026-06-25', utcTime: '01:00', venue: 'Monterrey' },
+  // ── GROUP B ──────────────────────────────────────────────────────────────────
+  { id: 'B1', round: 'Matchday 2', group: 'Group B', homeTeam: 'Canada', awayTeam: 'Bosnia & Herzegovina', date: '2026-06-12', utcTime: '19:00', venue: 'Toronto' },
+  { id: 'B2', round: 'Matchday 3', group: 'Group B', homeTeam: 'Qatar', awayTeam: 'Switzerland', date: '2026-06-13', utcTime: '19:00', venue: 'San Francisco' },
+  { id: 'B3', round: 'Matchday 8', group: 'Group B', homeTeam: 'Switzerland', awayTeam: 'Bosnia & Herzegovina', date: '2026-06-18', utcTime: '19:00', venue: 'Los Angeles' },
+  { id: 'B4', round: 'Matchday 8', group: 'Group B', homeTeam: 'Canada', awayTeam: 'Qatar', date: '2026-06-18', utcTime: '22:00', venue: 'Vancouver' },
+  { id: 'B5', round: 'Matchday 14', group: 'Group B', homeTeam: 'Switzerland', awayTeam: 'Canada', date: '2026-06-24', utcTime: '19:00', venue: 'Vancouver' },
+  { id: 'B6', round: 'Matchday 14', group: 'Group B', homeTeam: 'Bosnia & Herzegovina', awayTeam: 'Qatar', date: '2026-06-24', utcTime: '19:00', venue: 'Seattle' },
+  // ── GROUP C ──────────────────────────────────────────────────────────────────
+  { id: 'C1', round: 'Matchday 3', group: 'Group C', homeTeam: 'Brazil', awayTeam: 'Morocco', date: '2026-06-13', utcTime: '22:00', venue: 'New York/New Jersey' },
+  { id: 'C2', round: 'Matchday 3', group: 'Group C', homeTeam: 'Haiti', awayTeam: 'Scotland', date: '2026-06-14', utcTime: '01:00', venue: 'Boston' },
+  { id: 'C3', round: 'Matchday 9', group: 'Group C', homeTeam: 'Scotland', awayTeam: 'Morocco', date: '2026-06-19', utcTime: '22:00', venue: 'Boston' },
+  { id: 'C4', round: 'Matchday 9', group: 'Group C', homeTeam: 'Brazil', awayTeam: 'Haiti', date: '2026-06-20', utcTime: '00:30', venue: 'Philadelphia' },
+  { id: 'C5', round: 'Matchday 14', group: 'Group C', homeTeam: 'Scotland', awayTeam: 'Brazil', date: '2026-06-24', utcTime: '22:00', venue: 'Miami' },
+  { id: 'C6', round: 'Matchday 14', group: 'Group C', homeTeam: 'Morocco', awayTeam: 'Haiti', date: '2026-06-24', utcTime: '22:00', venue: 'Atlanta' },
+  // ── GROUP D ──────────────────────────────────────────────────────────────────
+  { id: 'D1', round: 'Matchday 2', group: 'Group D', homeTeam: 'USA', awayTeam: 'Paraguay', date: '2026-06-12', utcTime: '01:00', venue: 'Los Angeles' },
+  { id: 'D2', round: 'Matchday 3', group: 'Group D', homeTeam: 'Australia', awayTeam: 'Turkey', date: '2026-06-14', utcTime: '04:00', venue: 'Vancouver' },
+  { id: 'D3', round: 'Matchday 9', group: 'Group D', homeTeam: 'USA', awayTeam: 'Australia', date: '2026-06-19', utcTime: '19:00', venue: 'Seattle' },
+  { id: 'D4', round: 'Matchday 9', group: 'Group D', homeTeam: 'Turkey', awayTeam: 'Paraguay', date: '2026-06-20', utcTime: '03:00', venue: 'San Francisco' },
+  { id: 'D5', round: 'Matchday 15', group: 'Group D', homeTeam: 'Turkey', awayTeam: 'USA', date: '2026-06-26', utcTime: '02:00', venue: 'Los Angeles' },
+  { id: 'D6', round: 'Matchday 15', group: 'Group D', homeTeam: 'Paraguay', awayTeam: 'Australia', date: '2026-06-26', utcTime: '02:00', venue: 'San Francisco' },
+  // ── GROUP E ──────────────────────────────────────────────────────────────────
+  { id: 'E1', round: 'Matchday 4', group: 'Group E', homeTeam: 'Germany', awayTeam: 'Curaçao', date: '2026-06-14', utcTime: '17:00', venue: 'Houston' },
+  { id: 'E2', round: 'Matchday 4', group: 'Group E', homeTeam: 'Ivory Coast', awayTeam: 'Ecuador', date: '2026-06-14', utcTime: '23:00', venue: 'Philadelphia' },
+  { id: 'E3', round: 'Matchday 10', group: 'Group E', homeTeam: 'Germany', awayTeam: 'Ivory Coast', date: '2026-06-20', utcTime: '20:00', venue: 'Toronto' },
+  { id: 'E4', round: 'Matchday 10', group: 'Group E', homeTeam: 'Ecuador', awayTeam: 'Curaçao', date: '2026-06-21', utcTime: '00:00', venue: 'Kansas City' },
+  { id: 'E5', round: 'Matchday 15', group: 'Group E', homeTeam: 'Curaçao', awayTeam: 'Ivory Coast', date: '2026-06-25', utcTime: '20:00', venue: 'Philadelphia' },
+  { id: 'E6', round: 'Matchday 15', group: 'Group E', homeTeam: 'Ecuador', awayTeam: 'Germany', date: '2026-06-25', utcTime: '20:00', venue: 'New York/New Jersey' },
+  // ── GROUP F ──────────────────────────────────────────────────────────────────
+  { id: 'F1', round: 'Matchday 4', group: 'Group F', homeTeam: 'Netherlands', awayTeam: 'Japan', date: '2026-06-14', utcTime: '20:00', venue: 'Dallas' },
+  { id: 'F2', round: 'Matchday 4', group: 'Group F', homeTeam: 'Sweden', awayTeam: 'Tunisia', date: '2026-06-15', utcTime: '02:00', venue: 'Monterrey' },
+  { id: 'F3', round: 'Matchday 10', group: 'Group F', homeTeam: 'Netherlands', awayTeam: 'Sweden', date: '2026-06-20', utcTime: '17:00', venue: 'Houston' },
+  { id: 'F4', round: 'Matchday 10', group: 'Group F', homeTeam: 'Tunisia', awayTeam: 'Japan', date: '2026-06-21', utcTime: '04:00', venue: 'Monterrey' },
+  { id: 'F5', round: 'Matchday 15', group: 'Group F', homeTeam: 'Japan', awayTeam: 'Sweden', date: '2026-06-25', utcTime: '23:00', venue: 'Dallas' },
+  { id: 'F6', round: 'Matchday 15', group: 'Group F', homeTeam: 'Tunisia', awayTeam: 'Netherlands', date: '2026-06-25', utcTime: '23:00', venue: 'Kansas City' },
+  // ── GROUP G ──────────────────────────────────────────────────────────────────
+  { id: 'G1', round: 'Matchday 5', group: 'Group G', homeTeam: 'Belgium', awayTeam: 'Egypt', date: '2026-06-15', utcTime: '19:00', venue: 'Seattle' },
+  { id: 'G2', round: 'Matchday 5', group: 'Group G', homeTeam: 'Iran', awayTeam: 'New Zealand', date: '2026-06-16', utcTime: '01:00', venue: 'Los Angeles' },
+  { id: 'G3', round: 'Matchday 11', group: 'Group G', homeTeam: 'Belgium', awayTeam: 'Iran', date: '2026-06-21', utcTime: '19:00', venue: 'Los Angeles' },
+  { id: 'G4', round: 'Matchday 11', group: 'Group G', homeTeam: 'New Zealand', awayTeam: 'Egypt', date: '2026-06-22', utcTime: '01:00', venue: 'Vancouver' },
+  { id: 'G5', round: 'Matchday 16', group: 'Group G', homeTeam: 'Egypt', awayTeam: 'Iran', date: '2026-06-27', utcTime: '03:00', venue: 'Seattle' },
+  { id: 'G6', round: 'Matchday 16', group: 'Group G', homeTeam: 'New Zealand', awayTeam: 'Belgium', date: '2026-06-27', utcTime: '03:00', venue: 'Vancouver' },
+  // ── GROUP H ──────────────────────────────────────────────────────────────────
+  { id: 'H1', round: 'Matchday 5', group: 'Group H', homeTeam: 'Spain', awayTeam: 'Cape Verde', date: '2026-06-15', utcTime: '16:00', venue: 'Atlanta' },
+  { id: 'H2', round: 'Matchday 5', group: 'Group H', homeTeam: 'Saudi Arabia', awayTeam: 'Uruguay', date: '2026-06-15', utcTime: '22:00', venue: 'Miami' },
+  { id: 'H3', round: 'Matchday 11', group: 'Group H', homeTeam: 'Spain', awayTeam: 'Saudi Arabia', date: '2026-06-21', utcTime: '16:00', venue: 'Atlanta' },
+  { id: 'H4', round: 'Matchday 11', group: 'Group H', homeTeam: 'Uruguay', awayTeam: 'Cape Verde', date: '2026-06-21', utcTime: '22:00', venue: 'Miami' },
+  { id: 'H5', round: 'Matchday 16', group: 'Group H', homeTeam: 'Cape Verde', awayTeam: 'Saudi Arabia', date: '2026-06-26', utcTime: '00:00', venue: 'Houston' },
+  { id: 'H6', round: 'Matchday 16', group: 'Group H', homeTeam: 'Uruguay', awayTeam: 'Spain', date: '2026-06-27', utcTime: '00:00', venue: 'Guadalajara' },
+  // ── GROUP I ──────────────────────────────────────────────────────────────────
+  { id: 'I1', round: 'Matchday 6', group: 'Group I', homeTeam: 'France', awayTeam: 'Senegal', date: '2026-06-16', utcTime: '19:00', venue: 'New York/New Jersey' },
+  { id: 'I2', round: 'Matchday 6', group: 'Group I', homeTeam: 'Iraq', awayTeam: 'Norway', date: '2026-06-16', utcTime: '22:00', venue: 'Boston' },
+  { id: 'I3', round: 'Matchday 12', group: 'Group I', homeTeam: 'France', awayTeam: 'Iraq', date: '2026-06-22', utcTime: '21:00', venue: 'Philadelphia' },
+  { id: 'I4', round: 'Matchday 12', group: 'Group I', homeTeam: 'Norway', awayTeam: 'Senegal', date: '2026-06-23', utcTime: '00:00', venue: 'New York/New Jersey' },
+  { id: 'I5', round: 'Matchday 16', group: 'Group I', homeTeam: 'Norway', awayTeam: 'France', date: '2026-06-26', utcTime: '19:00', venue: 'Boston' },
+  { id: 'I6', round: 'Matchday 16', group: 'Group I', homeTeam: 'Senegal', awayTeam: 'Iraq', date: '2026-06-26', utcTime: '19:00', venue: 'Toronto' },
+  // ── GROUP J ──────────────────────────────────────────────────────────────────
+  { id: 'J1', round: 'Matchday 6', group: 'Group J', homeTeam: 'Argentina', awayTeam: 'Algeria', date: '2026-06-17', utcTime: '01:00', venue: 'Kansas City' },
+  { id: 'J2', round: 'Matchday 6', group: 'Group J', homeTeam: 'Austria', awayTeam: 'Jordan', date: '2026-06-17', utcTime: '04:00', venue: 'San Francisco' },
+  { id: 'J3', round: 'Matchday 12', group: 'Group J', homeTeam: 'Argentina', awayTeam: 'Austria', date: '2026-06-22', utcTime: '17:00', venue: 'Dallas' },
+  { id: 'J4', round: 'Matchday 12', group: 'Group J', homeTeam: 'Jordan', awayTeam: 'Algeria', date: '2026-06-23', utcTime: '03:00', venue: 'San Francisco' },
+  { id: 'J5', round: 'Matchday 17', group: 'Group J', homeTeam: 'Algeria', awayTeam: 'Austria', date: '2026-06-28', utcTime: '02:00', venue: 'Kansas City' },
+  { id: 'J6', round: 'Matchday 17', group: 'Group J', homeTeam: 'Jordan', awayTeam: 'Argentina', date: '2026-06-28', utcTime: '02:00', venue: 'Dallas' },
+  // ── GROUP K ──────────────────────────────────────────────────────────────────
+  { id: 'K1', round: 'Matchday 7', group: 'Group K', homeTeam: 'Portugal', awayTeam: 'DR Congo', date: '2026-06-17', utcTime: '17:00', venue: 'Houston' },
+  { id: 'K2', round: 'Matchday 7', group: 'Group K', homeTeam: 'Uzbekistan', awayTeam: 'Colombia', date: '2026-06-18', utcTime: '02:00', venue: 'Mexico City' },
+  { id: 'K3', round: 'Matchday 13', group: 'Group K', homeTeam: 'Portugal', awayTeam: 'Uzbekistan', date: '2026-06-23', utcTime: '17:00', venue: 'Houston' },
+  { id: 'K4', round: 'Matchday 13', group: 'Group K', homeTeam: 'Colombia', awayTeam: 'DR Congo', date: '2026-06-24', utcTime: '02:00', venue: 'Guadalajara' },
+  { id: 'K5', round: 'Matchday 17', group: 'Group K', homeTeam: 'Colombia', awayTeam: 'Portugal', date: '2026-06-27', utcTime: '23:30', venue: 'Miami' },
+  { id: 'K6', round: 'Matchday 17', group: 'Group K', homeTeam: 'DR Congo', awayTeam: 'Uzbekistan', date: '2026-06-27', utcTime: '23:30', venue: 'Atlanta' },
+  // ── GROUP L ──────────────────────────────────────────────────────────────────
+  { id: 'L1', round: 'Matchday 7', group: 'Group L', homeTeam: 'England', awayTeam: 'Croatia', date: '2026-06-17', utcTime: '20:00', venue: 'Dallas' },
+  { id: 'L2', round: 'Matchday 7', group: 'Group L', homeTeam: 'Ghana', awayTeam: 'Panama', date: '2026-06-17', utcTime: '23:00', venue: 'Toronto' },
+  { id: 'L3', round: 'Matchday 13', group: 'Group L', homeTeam: 'England', awayTeam: 'Ghana', date: '2026-06-23', utcTime: '20:00', venue: 'Boston' },
+  { id: 'L4', round: 'Matchday 13', group: 'Group L', homeTeam: 'Panama', awayTeam: 'Croatia', date: '2026-06-23', utcTime: '23:00', venue: 'Toronto' },
+  { id: 'L5', round: 'Matchday 17', group: 'Group L', homeTeam: 'Panama', awayTeam: 'England', date: '2026-06-27', utcTime: '21:00', venue: 'New York/New Jersey' },
+  { id: 'L6', round: 'Matchday 17', group: 'Group L', homeTeam: 'Croatia', awayTeam: 'Ghana', date: '2026-06-27', utcTime: '21:00', venue: 'Philadelphia' },
+  // ── ROUND OF 32 ──────────────────────────────────────────────────────────────
+  { id: 'R32_73', num: 73, round: 'Round of 32', homeTeam: '2A', awayTeam: '2B', date: '2026-06-28', utcTime: '19:00', venue: 'Los Angeles' },
+  { id: 'R32_74', num: 74, round: 'Round of 32', homeTeam: '1E', awayTeam: '3rd (A/B/C/D/F)', date: '2026-06-29', utcTime: '20:30', venue: 'Boston' },
+  { id: 'R32_75', num: 75, round: 'Round of 32', homeTeam: '1F', awayTeam: '2C', date: '2026-06-30', utcTime: '01:00', venue: 'Monterrey' },
+  { id: 'R32_76', num: 76, round: 'Round of 32', homeTeam: '1C', awayTeam: '2F', date: '2026-06-29', utcTime: '17:00', venue: 'Houston' },
+  { id: 'R32_77', num: 77, round: 'Round of 32', homeTeam: '1I', awayTeam: '3rd (C/D/F/G/H)', date: '2026-06-30', utcTime: '21:00', venue: 'New York/New Jersey' },
+  { id: 'R32_78', num: 78, round: 'Round of 32', homeTeam: '2E', awayTeam: '2I', date: '2026-06-30', utcTime: '17:00', venue: 'Dallas' },
+  { id: 'R32_79', num: 79, round: 'Round of 32', homeTeam: '1A', awayTeam: '3rd (C/E/F/H/I)', date: '2026-07-01', utcTime: '01:00', venue: 'Mexico City' },
+  { id: 'R32_80', num: 80, round: 'Round of 32', homeTeam: '1L', awayTeam: '3rd (E/H/I/J/K)', date: '2026-07-01', utcTime: '16:00', venue: 'Atlanta' },
+  { id: 'R32_81', num: 81, round: 'Round of 32', homeTeam: '1D', awayTeam: '3rd (B/E/F/I/J)', date: '2026-07-02', utcTime: '00:00', venue: 'San Francisco' },
+  { id: 'R32_82', num: 82, round: 'Round of 32', homeTeam: '1G', awayTeam: '3rd (A/E/H/I/J)', date: '2026-07-01', utcTime: '20:00', venue: 'Seattle' },
+  { id: 'R32_83', num: 83, round: 'Round of 32', homeTeam: '2K', awayTeam: '2L', date: '2026-07-02', utcTime: '23:00', venue: 'Toronto' },
+  { id: 'R32_84', num: 84, round: 'Round of 32', homeTeam: '1H', awayTeam: '2J', date: '2026-07-03', utcTime: '19:00', venue: 'Los Angeles' },
+  { id: 'R32_85', num: 85, round: 'Round of 32', homeTeam: '1B', awayTeam: '3rd (E/F/G/I/J)', date: '2026-07-03', utcTime: '03:00', venue: 'Vancouver' },
+  { id: 'R32_86', num: 86, round: 'Round of 32', homeTeam: '1J', awayTeam: '2H', date: '2026-07-03', utcTime: '22:00', venue: 'Miami' },
+  { id: 'R32_87', num: 87, round: 'Round of 32', homeTeam: '1K', awayTeam: '3rd (D/E/I/J/L)', date: '2026-07-04', utcTime: '01:30', venue: 'Kansas City' },
+  { id: 'R32_88', num: 88, round: 'Round of 32', homeTeam: '2D', awayTeam: '2G', date: '2026-07-03', utcTime: '18:00', venue: 'Dallas' },
+  // ── ROUND OF 16 ──────────────────────────────────────────────────────────────
+  { id: 'R16_89', num: 89, round: 'Round of 16', homeTeam: 'W74', awayTeam: 'W77', date: '2026-07-04', utcTime: '21:00', venue: 'Philadelphia' },
+  { id: 'R16_90', num: 90, round: 'Round of 16', homeTeam: 'W73', awayTeam: 'W75', date: '2026-07-04', utcTime: '17:00', venue: 'Houston' },
+  { id: 'R16_91', num: 91, round: 'Round of 16', homeTeam: 'W76', awayTeam: 'W78', date: '2026-07-05', utcTime: '20:00', venue: 'New York/New Jersey' },
+  { id: 'R16_92', num: 92, round: 'Round of 16', homeTeam: 'W79', awayTeam: 'W80', date: '2026-07-06', utcTime: '00:00', venue: 'Mexico City' },
+  { id: 'R16_93', num: 93, round: 'Round of 16', homeTeam: 'W83', awayTeam: 'W84', date: '2026-07-06', utcTime: '19:00', venue: 'Dallas' },
+  { id: 'R16_94', num: 94, round: 'Round of 16', homeTeam: 'W81', awayTeam: 'W82', date: '2026-07-07', utcTime: '00:00', venue: 'Seattle' },
+  { id: 'R16_95', num: 95, round: 'Round of 16', homeTeam: 'W86', awayTeam: 'W88', date: '2026-07-07', utcTime: '16:00', venue: 'Atlanta' },
+  { id: 'R16_96', num: 96, round: 'Round of 16', homeTeam: 'W85', awayTeam: 'W87', date: '2026-07-07', utcTime: '20:00', venue: 'Vancouver' },
+  // ── QUARTER-FINALS ───────────────────────────────────────────────────────────
+  { id: 'QF_97', num: 97, round: 'Quarter-final', homeTeam: 'W89', awayTeam: 'W90', date: '2026-07-09', utcTime: '20:00', venue: 'Boston' },
+  { id: 'QF_98', num: 98, round: 'Quarter-final', homeTeam: 'W93', awayTeam: 'W94', date: '2026-07-10', utcTime: '19:00', venue: 'Los Angeles' },
+  { id: 'QF_99', num: 99, round: 'Quarter-final', homeTeam: 'W91', awayTeam: 'W92', date: '2026-07-11', utcTime: '21:00', venue: 'Miami' },
+  { id: 'QF_100', num: 100, round: 'Quarter-final', homeTeam: 'W95', awayTeam: 'W96', date: '2026-07-12', utcTime: '01:00', venue: 'Kansas City' },
+  // ── SEMI-FINALS ──────────────────────────────────────────────────────────────
+  { id: 'SF_101', num: 101, round: 'Semi-final', homeTeam: 'W97', awayTeam: 'W98', date: '2026-07-14', utcTime: '19:00', venue: 'Dallas' },
+  { id: 'SF_102', num: 102, round: 'Semi-final', homeTeam: 'W99', awayTeam: 'W100', date: '2026-07-15', utcTime: '19:00', venue: 'Atlanta' },
+  // ── THIRD PLACE ──────────────────────────────────────────────────────────────
+  { id: 'TP_103', round: 'Third place', homeTeam: 'L101', awayTeam: 'L102', date: '2026-07-18', utcTime: '21:00', venue: 'Miami' },
+  // ── FINAL ────────────────────────────────────────────────────────────────────
+  { id: 'FIN_104', round: 'Final', homeTeam: 'W101', awayTeam: 'W102', date: '2026-07-19', utcTime: '19:00', venue: 'New York/New Jersey' },
+];
