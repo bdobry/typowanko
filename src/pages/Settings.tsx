@@ -164,7 +164,7 @@ export function Settings() {
         <div className="border-t border-gray-800 pt-3 space-y-1 text-xs text-gray-500">
           <p>📍 Klucz jest przechowywany tylko lokalnie w Twojej przeglądarce.</p>
           <p>📊 Sport key: <code className="text-gray-400">soccer_fifa_world_cup</code></p>
-          <p>📈 Rynek: <code className="text-gray-400">correct_score</code> (regiony: eu, uk) — pobierany per mecz</p>
+          <p>📈 Rynek: <code className="text-gray-400">correct_score</code> (regiony: eu, uk, us, au) — pobierany per mecz</p>
         </div>
       </div>
     </div>
