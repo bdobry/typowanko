@@ -46,6 +46,19 @@ export interface Bet {
   awayScore: number;
 }
 
+export interface MatchOdd {
+  id?: number;
+  fixtureId: string;
+  homeOdd: number; // "1" – home win
+  drawOdd: number; // "X" – draw
+  awayOdd: number; // "2" – away win
+  bookmakerId?: number;
+  bookmakerName?: string;
+  fetchedAt?: number;
+  manuallyEdited?: boolean;
+  locked?: boolean;
+}
+
 export interface ScoreEntry {
   playerId: string;
   fixtureId: string;
@@ -55,6 +68,7 @@ export interface ScoreEntry {
   resultHomeScore: number;
   resultAwayScore: number;
   odd: number;
+  pointType?: 'exact' | 'outcome'; // how points were awarded
 }
 
 class TypowankoDb extends Dexie {
@@ -63,6 +77,7 @@ class TypowankoDb extends Dexie {
   odds!: EntityTable<Odd, 'id'>;
   bets!: EntityTable<Bet, 'id'>;
   scores!: EntityTable<ScoreEntry & { id?: number }, 'id'>;
+  matchOdds!: EntityTable<MatchOdd, 'id'>;
 
   constructor() {
     super('typowanko');
@@ -72,6 +87,9 @@ class TypowankoDb extends Dexie {
       odds: '++id, fixtureId, [fixtureId+homeScore+awayScore]',
       bets: '++id, [playerId+fixtureId], fixtureId, playerId',
       scores: '++id, [playerId+fixtureId], fixtureId, playerId',
+    });
+    this.version(2).stores({
+      matchOdds: '++id, fixtureId',
     });
   }
 }

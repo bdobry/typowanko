@@ -6,10 +6,10 @@
  * (set as a GitHub Actions secret) and can be overridden per-browser in Settings.
  *
  * Three-step approach:
- *   1. Resolve Correct Score bet ID from /odds/bets
+ *   1. Resolve Correct Score + Match Winner bet IDs from /odds/bets
  *   2. Resolve Bet365 bookmaker ID from /odds/bookmakers
  *   3. GET /fixtures?date=&league=1&season=2026 — find fixture ID by team names and date
- *   4. GET /odds?fixture={id}&bet={betId}&bookmaker={bookmakerId} — fetch Bet365 Correct Score odds only
+ *   4. GET /odds?fixture={id}&bet={betId}&bookmaker={bookmakerId} — fetch Bet365 odds
  */
 
 const API_BASE = 'https://v3.football.api-sports.io';
@@ -18,6 +18,7 @@ const WC_SEASON = 2026;
 
 export const ODDS_API_KEY_STORAGE_KEY = 'apiFootballKey';
 export const CORRECT_SCORE_BET_ID_KEY = 'correctScoreBetId';
+export const MATCH_WINNER_BET_ID_KEY = 'matchWinnerBetId';
 export const DEFAULT_BOOKMAKER_ID_KEY = 'bet365BookmakerId';
 export const DEFAULT_BOOKMAKER_NAME = 'Bet365';
 
@@ -37,6 +38,15 @@ export interface CorrectScoreOdd {
   bookmakerId: number;
   bookmakerName: string;
   market: string;
+  fetchedAt: number;
+}
+
+export interface Match1X2Odds {
+  homeOdd: number;
+  drawOdd: number;
+  awayOdd: number;
+  bookmakerId: number;
+  bookmakerName: string;
   fetchedAt: number;
 }
 
@@ -149,6 +159,42 @@ export async function resolveCorrectScoreBetId(apiKey: string): Promise<number> 
 }
 
 /**
+ * Resolve the Match Winner (1X2) bet ID from API-FOOTBALL /odds/bets endpoint.
+ * Caches the result in localStorage to avoid repeated API calls.
+ */
+export async function resolveMatchWinnerBetId(apiKey: string): Promise<number> {
+  const cached = localStorage.getItem(MATCH_WINNER_BET_ID_KEY);
+  if (cached) {
+    return parseInt(cached, 10);
+  }
+
+  const url = new URL(`${API_BASE}/odds/bets`);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = (await apiGet(url, apiKey)) as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bets: any[] = data.response ?? [];
+
+  const matchWinnerBet = bets.find(
+    (bet) =>
+      bet.name?.toLowerCase() === 'match winner' ||
+      bet.name?.toLowerCase() === '1x2' ||
+      bet.name?.toLowerCase().includes('match result')
+  );
+
+  if (!matchWinnerBet?.id) {
+    throw new Error(
+      'Nie znaleziono rynku "Match Winner" w API-FOOTBALL. ' +
+      'Sprawdź, czy Twój plan API ma dostęp do kursów bukmacherskich.'
+    );
+  }
+
+  const betId = matchWinnerBet.id;
+  localStorage.setItem(MATCH_WINNER_BET_ID_KEY, String(betId));
+  console.log(`✓ Resolved Match Winner bet ID: ${betId}`);
+  return betId;
+}
+
+/**
  * Resolve the Bet365 bookmaker ID from API-FOOTBALL /odds/bookmakers endpoint.
  * Caches the result in localStorage to avoid repeated API calls.
  */
@@ -197,27 +243,15 @@ export function getCachedConfigIds(): { betId: number; bookmakerId: number } | n
   };
 }
 
-export async function fetchCorrectScoreOdds(
+/**
+ * Resolve fixture ID from date and team names.
+ */
+async function resolveFixtureId(
   homeTeam: string,
   awayTeam: string,
-  date: string, // YYYY-MM-DD
+  date: string,
   apiKey: string,
-): Promise<CorrectScoreOdd[]> {
-  // Step 1: Resolve configuration IDs
-  console.log('🔧 Resolving API configuration...');
-  const betId = await resolveCorrectScoreBetId(apiKey);
-  const bookmakerId = await resolveBet365BookmakerId(apiKey);
-
-  if (!betId) {
-    throw new Error('CORRECT_SCORE_BET_ID is missing. Cannot fetch odds.');
-  }
-  if (!bookmakerId) {
-    throw new Error('DEFAULT_BOOKMAKER_ID is missing. Cannot fetch odds.');
-  }
-
-  console.log(`✓ Using bet ID: ${betId}, bookmaker ID: ${bookmakerId} (${DEFAULT_BOOKMAKER_NAME})`);
-
-  // Step 2: Resolve fixture ID from date + team names
+): Promise<number> {
   console.log(`🔍 Finding fixture for ${homeTeam} vs ${awayTeam} on ${date}...`);
   const fixturesUrl = new URL(`${API_BASE}/fixtures`);
   fixturesUrl.searchParams.set('date', date);
@@ -244,6 +278,31 @@ export async function fetchCorrectScoreOdds(
 
   const fixtureId: number = fixtureEntry.fixture.id;
   console.log(`✓ Found fixture ID: ${fixtureId}`);
+  return fixtureId;
+}
+
+export async function fetchCorrectScoreOdds(
+  homeTeam: string,
+  awayTeam: string,
+  date: string, // YYYY-MM-DD
+  apiKey: string,
+): Promise<CorrectScoreOdd[]> {
+  // Step 1: Resolve configuration IDs
+  console.log('🔧 Resolving API configuration...');
+  const betId = await resolveCorrectScoreBetId(apiKey);
+  const bookmakerId = await resolveBet365BookmakerId(apiKey);
+
+  if (!betId) {
+    throw new Error('CORRECT_SCORE_BET_ID is missing. Cannot fetch odds.');
+  }
+  if (!bookmakerId) {
+    throw new Error('DEFAULT_BOOKMAKER_ID is missing. Cannot fetch odds.');
+  }
+
+  console.log(`✓ Using bet ID: ${betId}, bookmaker ID: ${bookmakerId} (${DEFAULT_BOOKMAKER_NAME})`);
+
+  // Step 2: Resolve fixture ID from date + team names
+  const fixtureId = await resolveFixtureId(homeTeam, awayTeam, date, apiKey);
 
   // Step 3: Fetch odds with specific bet and bookmaker parameters
   const oddsUrl = new URL(`${API_BASE}/odds`);
@@ -298,6 +357,174 @@ export async function fetchCorrectScoreOdds(
 
   if (results.length === 0) {
     console.warn(`⚠️ No Correct Score odds found from ${DEFAULT_BOOKMAKER_NAME} for fixture ${fixtureId}`);
+    throw new Error(
+      `Znaleziono mecz (ID: ${fixtureId}), ale ${DEFAULT_BOOKMAKER_NAME} nie zwrócił kursów "Correct Score". ` +
+        `Kursy mogą być niedostępne przed meczem lub ${DEFAULT_BOOKMAKER_NAME} nie oferuje kursów dla tego meczu.`,
+    );
+  }
+
+  console.log(`✓ Fetched ${results.length} Correct Score odds from ${DEFAULT_BOOKMAKER_NAME}`);
+  return results;
+}
+
+/**
+ * Fetch Match Winner (1X2) odds for a given fixture ID from Bet365.
+ * Returns null if odds are not available (non-throwing).
+ */
+async function fetchMatch1X2OddsById(
+  fixtureId: number,
+  matchWinnerBetId: number,
+  bookmakerId: number,
+  apiKey: string,
+): Promise<Match1X2Odds | null> {
+  const oddsUrl = new URL(`${API_BASE}/odds`);
+  oddsUrl.searchParams.set('fixture', String(fixtureId));
+  oddsUrl.searchParams.set('bet', String(matchWinnerBetId));
+  oddsUrl.searchParams.set('bookmaker', String(bookmakerId));
+
+  console.log(`📡 Fetching 1X2 odds: ${oddsUrl.toString()}`);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oddsData = (await apiGet(oddsUrl, apiKey)) as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oddsResponse: any[] = oddsData.response ?? [];
+
+  const fetchedAt = Date.now();
+  let homeOdd = 0;
+  let drawOdd = 0;
+  let awayOdd = 0;
+
+  for (const entry of oddsResponse) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const bookmaker of (entry.bookmakers ?? []) as any[]) {
+      if (bookmaker.id !== bookmakerId) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const bet of (bookmaker.bets ?? []) as any[]) {
+        if (bet.id !== matchWinnerBetId) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const outcome of (bet.values ?? []) as any[]) {
+          const val: string = (outcome.value ?? '').toLowerCase().trim();
+          const odd = parseFloat(outcome.odd);
+          if (isNaN(odd) || odd <= 0) continue;
+          if (val === 'home') homeOdd = odd;
+          else if (val === 'draw') drawOdd = odd;
+          else if (val === 'away') awayOdd = odd;
+        }
+      }
+    }
+  }
+
+  if (homeOdd === 0 && drawOdd === 0 && awayOdd === 0) {
+    console.warn(`⚠️ No Match Winner (1X2) odds found from ${DEFAULT_BOOKMAKER_NAME} for fixture ${fixtureId}`);
+    return null;
+  }
+
+  console.log(`✓ Fetched 1X2 odds from ${DEFAULT_BOOKMAKER_NAME}: Home ${homeOdd} / Draw ${drawOdd} / Away ${awayOdd}`);
+  return { homeOdd, drawOdd, awayOdd, bookmakerId, bookmakerName: DEFAULT_BOOKMAKER_NAME, fetchedAt };
+}
+
+export interface AllOddsResult {
+  correctScoreOdds: CorrectScoreOdd[];
+  match1X2: Match1X2Odds | null;
+}
+
+/**
+ * Fetch all odds (Correct Score + Match Winner 1X2) for a fixture.
+ * Both are fetched in parallel after resolving the fixture ID.
+ */
+export async function fetchAllOdds(
+  homeTeam: string,
+  awayTeam: string,
+  date: string,
+  apiKey: string,
+): Promise<AllOddsResult> {
+  console.log('🔧 Resolving API configuration...');
+
+  // Resolve all IDs in parallel (all are cached after first call)
+  const [betId, bookmakerId, matchWinnerBetId] = await Promise.all([
+    resolveCorrectScoreBetId(apiKey),
+    resolveBet365BookmakerId(apiKey),
+    resolveMatchWinnerBetId(apiKey),
+  ]);
+
+  console.log(`✓ Using bookmaker: ${DEFAULT_BOOKMAKER_NAME} (ID: ${bookmakerId})`);
+
+  // Resolve fixture ID
+  const fixtureId = await resolveFixtureId(homeTeam, awayTeam, date, apiKey);
+
+  // Fetch both correct score odds and 1X2 odds in parallel
+  const [correctScoreOddsSettled, match1X2Settled] = await Promise.allSettled([
+    fetchCorrectScoreOddsById(fixtureId, betId, bookmakerId, apiKey),
+    fetchMatch1X2OddsById(fixtureId, matchWinnerBetId, bookmakerId, apiKey),
+  ]);
+
+  if (correctScoreOddsSettled.status === 'rejected') {
+    throw correctScoreOddsSettled.reason;
+  }
+
+  const correctScoreOdds = correctScoreOddsSettled.value;
+  const match1X2 = match1X2Settled.status === 'fulfilled' ? match1X2Settled.value : null;
+
+  if (match1X2Settled.status === 'rejected') {
+    console.warn('⚠️ Could not fetch 1X2 odds:', match1X2Settled.reason);
+  }
+
+  return { correctScoreOdds, match1X2 };
+}
+
+/**
+ * Fetch Correct Score odds for a known fixture ID.
+ */
+async function fetchCorrectScoreOddsById(
+  fixtureId: number,
+  betId: number,
+  bookmakerId: number,
+  apiKey: string,
+): Promise<CorrectScoreOdd[]> {
+  const oddsUrl = new URL(`${API_BASE}/odds`);
+  oddsUrl.searchParams.set('fixture', String(fixtureId));
+  oddsUrl.searchParams.set('bet', String(betId));
+  oddsUrl.searchParams.set('bookmaker', String(bookmakerId));
+
+  console.log(`📡 Fetching Correct Score odds: ${oddsUrl.toString()}`);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oddsData = (await apiGet(oddsUrl, apiKey)) as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oddsResponse: any[] = oddsData.response ?? [];
+
+  const results: CorrectScoreOdd[] = [];
+  const fetchedAt = Date.now();
+
+  for (const entry of oddsResponse) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const bookmaker of (entry.bookmakers ?? []) as any[]) {
+      if (bookmaker.id !== bookmakerId) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const bet of (bookmaker.bets ?? []) as any[]) {
+        if (bet.id !== betId) continue;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const outcome of (bet.values ?? []) as any[]) {
+          const parsed = parseOutcome(outcome.value ?? '');
+          if (!parsed) continue;
+          const { homeScore, awayScore } = parsed;
+          const odd = parseFloat(outcome.odd);
+          if (isNaN(odd) || odd <= 0) continue;
+          results.push({
+            homeScore,
+            awayScore,
+            odd,
+            bookmakerId,
+            bookmakerName: DEFAULT_BOOKMAKER_NAME,
+            market: 'correct_score',
+            fetchedAt,
+          });
+        }
+      }
+    }
+  }
+
+  if (results.length === 0) {
     throw new Error(
       `Znaleziono mecz (ID: ${fixtureId}), ale ${DEFAULT_BOOKMAKER_NAME} nie zwrócił kursów "Correct Score". ` +
         `Kursy mogą być niedostępne przed meczem lub ${DEFAULT_BOOKMAKER_NAME} nie oferuje kursów dla tego meczu.`,
