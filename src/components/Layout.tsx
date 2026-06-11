@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 const navItems = [
   { to: '/fixtures', label: '⚽ Mecze' },
-  { to: '/', label: '🏆 Tabela', end: true },
+  { to: '/leaderboard', label: '🏆 Tabela' },
   { to: '/players', label: '👥 Gracze' },
   { to: '/settings', label: '⚙️ Ustawienia' },
 ];
@@ -14,11 +14,10 @@ export function Layout() {
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-6">
           <span className="font-bold text-green-600 text-lg tracking-tight">Typowanko 🇺🇸🇨🇦🇲🇽</span>
           <nav className="flex gap-1 ml-auto">
-            {navItems.map(({ to, label, end }) => (
+            {navItems.map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}
-                end={end}
                 className={({ isActive }) =>
                   `px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                     isActive

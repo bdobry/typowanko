@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { createHashRouter, RouterProvider } from 'react-router-dom';
+import { createHashRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Leaderboard } from './pages/Leaderboard';
 import { Players } from './pages/Players';
@@ -13,9 +13,10 @@ const router = createHashRouter([
     path: '/',
     element: <Layout />,
     children: [
-      { index: true, element: <Leaderboard /> },
+      { index: true, element: <Navigate to="/fixtures" replace /> },
       { path: 'fixtures', element: <Fixtures /> },
       { path: 'fixtures/:id', element: <FixtureDetail /> },
+      { path: 'leaderboard', element: <Leaderboard /> },
       { path: 'players', element: <Players /> },
       { path: 'settings', element: <Settings /> },
     ],

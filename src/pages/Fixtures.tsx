@@ -21,13 +21,18 @@ export function Fixtures() {
   const fixtures = useLiveQuery(() => db.fixtures.orderBy('date').toArray(), []);
   const allBets = useLiveQuery(() => db.bets.toArray(), []);
   const allOdds = useLiveQuery(() => db.odds.toArray(), []);
+  const players = useLiveQuery(() => db.players.toArray(), []);
 
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'locked'>('all');
   const [group, setGroup] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Build per-fixture lookup sets
-  const fixturesWithBets = new Set((allBets ?? []).map((b) => b.fixtureId));
+  const betCountMap = new Map<string, number>();
+  for (const b of (allBets ?? [])) {
+    betCountMap.set(b.fixtureId, (betCountMap.get(b.fixtureId) ?? 0) + 1);
+  }
+  const totalPlayers = (players ?? []).length;
   const fixturesWithOdds = new Set((allOdds ?? []).map((o) => o.fixtureId));
 
   const filtered = (fixtures ?? []).filter((f) => {
@@ -94,7 +99,7 @@ export function Fixtures() {
           <div className="space-y-1">
             {games.map((f) => {
               const isExpanded = expandedId === f.id;
-              const hasBets = fixturesWithBets.has(f.id);
+              const betCount = betCountMap.get(f.id) ?? 0;
               const hasOdds = fixturesWithOdds.has(f.id);
               return (
                 <div key={f.id} className="rounded-lg overflow-hidden border border-gray-200 hover:border-gray-300 transition-colors">
@@ -124,10 +129,13 @@ export function Fixtures() {
                     <div className="flex items-center gap-2 shrink-0">
                       {/* Status icons */}
                       <span
-                        title={hasBets ? 'Zakłady zapisane' : 'Brak zakładów'}
-                        className={hasBets ? 'text-green-500' : 'text-gray-300'}
+                        title={`Zakłady: ${betCount}/${totalPlayers}`}
+                        className={`flex items-center gap-0.5 text-xs ${betCount > 0 ? 'text-green-500' : 'text-gray-300'}`}
                       >
                         🎯
+                        {totalPlayers > 0 && (
+                          <span className="font-mono">{betCount}/{totalPlayers}</span>
+                        )}
                       </span>
                       <span
                         title={hasOdds ? 'Kursy pobrane' : 'Brak kursów'}
