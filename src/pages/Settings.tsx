@@ -45,12 +45,12 @@ export function Settings() {
 
   return (
     <div className="space-y-6 max-w-lg">
-      <h1 className="text-xl font-bold text-white">Settings</h1>
+      <h1 className="text-xl font-bold text-gray-900">Ustawienia</h1>
 
       {/* football-data.org */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-gray-300 mb-1">football-data.org — wyniki meczów</h2>
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">football-data.org — wyniki meczów</h2>
           <p className="text-xs text-gray-500 leading-relaxed">
             Używany do automatycznego pobierania wyników zakończonych meczów MŚ 2026.
             Darmowy plan: 10 zapytań / min.{' '}
@@ -58,7 +58,7 @@ export function Settings() {
               href="https://www.football-data.org/client/register"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-green-400 hover:text-green-300 underline"
+              className="text-green-600 hover:text-green-500 underline"
             >
               Zarejestruj się na football-data.org
             </a>{' '}
@@ -73,7 +73,7 @@ export function Settings() {
 
         <form onSubmit={saveFdKey} className="flex gap-2 items-end">
           <div className="flex-1">
-            <label className="block text-xs text-gray-400 mb-1">
+            <label className="block text-xs text-gray-500 mb-1">
               API Key{ENV_FOOTBALL_KEY && !fdApiKey ? ' (używany: domyślny)' : ''}
             </label>
             <input
@@ -81,7 +81,7 @@ export function Settings() {
               value={fdApiKey}
               onChange={(e) => { setFdApiKey(e.target.value); setFdSaved(false); }}
               placeholder={ENV_FOOTBALL_KEY ? '(nadpisz klucz domyślny)' : 'np. a1b2c3d4e5f6...'}
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-green-500"
+              className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-green-500"
               spellCheck={false}
               autoComplete="off"
             />
@@ -96,7 +96,7 @@ export function Settings() {
             <button
               type="button"
               onClick={clearFdKey}
-              className="text-gray-500 hover:text-red-400 px-3 py-2 rounded text-sm transition-colors"
+              className="text-gray-400 hover:text-red-500 px-3 py-2 rounded text-sm transition-colors"
               title="Usuń klucz"
             >
               ×
@@ -104,17 +104,17 @@ export function Settings() {
           )}
         </form>
 
-        <div className="border-t border-gray-800 pt-3 space-y-1 text-xs text-gray-500">
+        <div className="border-t border-gray-200 pt-3 space-y-1 text-xs text-gray-500">
           <p>📍 Klucz lokalny jest przechowywany tylko w Twojej przeglądarce.</p>
-          <p>🏆 Competition ID: <code className="text-gray-400">2000</code> (FIFA World Cup)</p>
-          <p>📡 Endpoint: <code className="text-gray-400">GET /v4/competitions/2000/matches</code></p>
+          <p>🏆 Competition ID: <code className="text-gray-600">2000</code> (FIFA World Cup)</p>
+          <p>📡 Endpoint: <code className="text-gray-600">GET /v4/competitions/2000/matches</code></p>
         </div>
       </div>
 
       {/* api-football.com */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-gray-300 mb-1">api-football.com — kursy bukmacherskie</h2>
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">api-football.com — kursy bukmacherskie</h2>
           <p className="text-xs text-gray-500 leading-relaxed">
             Używany do automatycznego pobierania kursów na dokładny wynik (Exact Score)
             dla meczów MŚ 2026. Darmowy plan: 100 zapytań / dzień — wystarczający dla całego turnieju.{' '}
@@ -122,7 +122,7 @@ export function Settings() {
               href="https://dashboard.api-football.com/register"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-green-400 hover:text-green-300 underline"
+              className="text-green-600 hover:text-green-500 underline"
             >
               Zarejestruj się na api-football.com
             </a>{' '}
@@ -132,13 +132,13 @@ export function Settings() {
 
         <form onSubmit={saveOddsKey} className="flex gap-2 items-end">
           <div className="flex-1">
-            <label className="block text-xs text-gray-400 mb-1">API Key</label>
+            <label className="block text-xs text-gray-500 mb-1">API Key</label>
             <input
               type="text"
               value={oddsApiKey}
               onChange={(e) => { setOddsApiKey(e.target.value); setOddsSaved(false); }}
               placeholder="np. a1b2c3d4e5f6..."
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-green-500"
+              className="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-green-500"
               spellCheck={false}
               autoComplete="off"
             />
@@ -153,7 +153,7 @@ export function Settings() {
             <button
               type="button"
               onClick={clearOddsKey}
-              className="text-gray-500 hover:text-red-400 px-3 py-2 rounded text-sm transition-colors"
+              className="text-gray-400 hover:text-red-500 px-3 py-2 rounded text-sm transition-colors"
               title="Usuń klucz"
             >
               ×
@@ -161,11 +161,11 @@ export function Settings() {
           )}
         </form>
 
-        <div className="border-t border-gray-800 pt-3 space-y-1 text-xs text-gray-500">
+        <div className="border-t border-gray-200 pt-3 space-y-1 text-xs text-gray-500">
           <p>📍 Klucz jest przechowywany tylko lokalnie w Twojej przeglądarce.</p>
-          <p>🏆 Liga: <code className="text-gray-400">1</code> (FIFA World Cup), sezon <code className="text-gray-400">2026</code></p>
-          <p>📡 Endpoint: <code className="text-gray-400">GET /fixtures</code> → <code className="text-gray-400">GET /odds?fixture=id</code></p>
-          <p>📈 Rynek: <code className="text-gray-400">Exact Score</code> — najlepszy kurs spośród wszystkich bukmacherów</p>
+          <p>🏆 Liga: <code className="text-gray-600">1</code> (FIFA World Cup), sezon <code className="text-gray-600">2026</code></p>
+          <p>📡 Endpoint: <code className="text-gray-600">GET /fixtures</code> → <code className="text-gray-600">GET /odds?fixture=id</code></p>
+          <p>📈 Rynek: <code className="text-gray-600">Exact Score</code> — najlepszy kurs spośród wszystkich bukmacherów</p>
         </div>
       </div>
     </div>

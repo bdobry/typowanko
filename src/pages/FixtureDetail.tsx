@@ -19,7 +19,7 @@ function ScoreSelect({
     <select
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
-      className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white font-mono focus:outline-none focus:border-green-500"
+      className="bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 font-mono focus:outline-none focus:border-green-500"
     >
       {SCORES.map((s) => (
         <option key={s} value={s}>
@@ -67,7 +67,7 @@ export function FixtureDetail() {
   const [fetchingResult, setFetchingResult] = useState(false);
   const [fetchResultError, setFetchResultError] = useState<string | null>(null);
 
-  if (!fixture) return <div className="text-gray-500 text-center py-12">Loading…</div>;
+  if (!fixture) return <div className="text-gray-400 text-center py-12">Ładowanie…</div>;
 
   const oddsMap = new Map<string, number>(
     (odds ?? []).map((o) => [`${o.homeScore}:${o.awayScore}`, o.odd])
@@ -92,7 +92,7 @@ export function FixtureDetail() {
   }
 
   async function lockFixture() {
-    if (!confirm(`Lock result ${resultH}:${resultA} for ${fixture!.homeTeam} vs ${fixture!.awayTeam}?`)) return;
+    if (!confirm(`Zablokować wynik ${resultH}:${resultA} dla ${fixture!.homeTeam} vs ${fixture!.awayTeam}?`)) return;
     await db.fixtures.update(fixture!.id, {
       status: 'locked',
       homeScore: resultH,
@@ -102,7 +102,7 @@ export function FixtureDetail() {
   }
 
   async function unlockFixture() {
-    if (!confirm('Unlock this match? Points will be removed.')) return;
+    if (!confirm('Odblokować mecz? Punkty zostaną usunięte.')) return;
     await db.fixtures.update(fixture!.id, { status: 'upcoming', homeScore: undefined, awayScore: undefined });
     await db.scores.where('fixtureId').equals(fixture!.id).delete();
   }
@@ -221,16 +221,16 @@ export function FixtureDetail() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <button onClick={() => navigate('/fixtures')} className="text-gray-500 hover:text-gray-300 text-sm mb-3 transition-colors">
-          ← Back to fixtures
+        <button onClick={() => navigate('/fixtures')} className="text-gray-400 hover:text-gray-700 text-sm mb-3 transition-colors">
+          ← Powrót do meczów
         </button>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-500">{fixture.group ?? fixture.round}</span>
+            <span className="text-xs text-gray-400">{fixture.group ?? fixture.round}</span>
             {isLocked ? (
-              <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded-full">✓ Locked</span>
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Zakończony</span>
             ) : (
-              <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">Upcoming</span>
+              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Nadchodzący</span>
             )}
           </div>
 
@@ -241,34 +241,34 @@ export function FixtureDetail() {
                 value={editHome}
                 onChange={(e) => setEditHome(e.target.value)}
                 placeholder={fixture.homeTeam}
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white focus:outline-none text-sm"
+                className="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1 text-gray-900 focus:outline-none text-sm"
               />
-              <span className="text-gray-500">vs</span>
+              <span className="text-gray-400">vs</span>
               <input
                 value={editAway}
                 onChange={(e) => setEditAway(e.target.value)}
                 placeholder={fixture.awayTeam}
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white focus:outline-none text-sm"
+                className="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1 text-gray-900 focus:outline-none text-sm"
               />
-              <button onClick={saveTeams} className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded transition-colors">Save</button>
-              <button onClick={() => setEditTeams(false)} className="text-gray-500 hover:text-white text-xs px-2 py-1.5 rounded transition-colors">×</button>
+              <button onClick={saveTeams} className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded transition-colors">Zapisz</button>
+              <button onClick={() => setEditTeams(false)} className="text-gray-400 hover:text-gray-900 text-xs px-2 py-1.5 rounded transition-colors">×</button>
             </div>
           ) : (
             <div className="flex items-center gap-4 mt-2">
-              <span className="text-xl font-bold text-white flex-1">{fixture.homeTeam}</span>
+              <span className="text-xl font-bold text-gray-900 flex-1">{fixture.homeTeam}</span>
               {isLocked ? (
-                <span className="text-3xl font-bold text-green-400 font-mono">
+                <span className="text-3xl font-bold text-green-600 font-mono">
                   {fixture.homeScore}:{fixture.awayScore}
                 </span>
               ) : (
-                <span className="text-gray-500 font-mono text-xl">vs</span>
+                <span className="text-gray-400 font-mono text-xl">vs</span>
               )}
-              <span className="text-xl font-bold text-white flex-1 text-right">{fixture.awayTeam}</span>
+              <span className="text-xl font-bold text-gray-900 flex-1 text-right">{fixture.awayTeam}</span>
               {!isLocked && (
                 <button
                   onClick={() => { setEditHome(fixture.homeTeam); setEditAway(fixture.awayTeam); setEditTeams(true); }}
-                  className="text-gray-600 hover:text-gray-400 text-xs ml-2 transition-colors"
-                  title="Edit teams (knockout stage)"
+                  className="text-gray-400 hover:text-gray-600 text-xs ml-2 transition-colors"
+                  title="Edytuj drużyny (faza pucharowa)"
                 >
                   ✏️
                 </button>
@@ -276,8 +276,8 @@ export function FixtureDetail() {
             </div>
           )}
 
-          <div className="text-xs text-gray-500 mt-2">
-            {new Date(fixture.date + 'T12:00:00').toLocaleDateString('en-GB', {
+          <div className="text-xs text-gray-400 mt-2">
+            {new Date(fixture.date + 'T12:00:00').toLocaleDateString('pl-PL', {
               weekday: 'long', day: 'numeric', month: 'long',
             })}
             {fixture.utcTime && ` · ${fixture.utcTime} UTC`}
@@ -288,18 +288,18 @@ export function FixtureDetail() {
 
       {/* Lock / Unlock */}
       {!isLocked && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-          <h2 className="text-sm font-semibold text-gray-400 mb-3">Set Result & Lock</h2>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <h2 className="text-sm font-semibold text-gray-500 mb-3">Ustaw wynik i zablokuj</h2>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm text-gray-300 w-24 truncate text-right">{fixture.homeTeam}</span>
+            <span className="text-sm text-gray-700 w-24 truncate text-right">{fixture.homeTeam}</span>
             <ScoreSelect value={resultH} onChange={setResultH} />
-            <span className="text-gray-500">:</span>
+            <span className="text-gray-400">:</span>
             <ScoreSelect value={resultA} onChange={setResultA} />
-            <span className="text-sm text-gray-300 w-24 truncate">{fixture.awayTeam}</span>
+            <span className="text-sm text-gray-700 w-24 truncate">{fixture.awayTeam}</span>
             <button
               onClick={fetchResultFromApi}
               disabled={fetchingResult}
-              className="text-xs bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-blue-200 px-3 py-1.5 rounded transition-colors"
+              className="text-xs bg-blue-100 hover:bg-blue-200 disabled:opacity-50 text-blue-700 px-3 py-1.5 rounded transition-colors"
               title="Pobierz wynik z football-data.org"
             >
               {fetchingResult ? '⏳ Pobieranie…' : '🔄 Pobierz wynik'}
@@ -308,16 +308,16 @@ export function FixtureDetail() {
               onClick={lockFixture}
               className="ml-auto bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded font-medium text-sm transition-colors"
             >
-              Lock Result
+              Zatwierdź wynik
             </button>
           </div>
           {fetchResultError && (
-            <p className="text-xs text-red-400 mt-2 bg-red-950 border border-red-900 rounded px-3 py-2">
+            <p className="text-xs text-red-500 mt-2 bg-red-50 border border-red-200 rounded px-3 py-2">
               ⚠️ {fetchResultError}
             </p>
           )}
           {!oddsMap.has(`${resultH}:${resultA}`) && (
-            <p className="text-xs text-yellow-600 mt-2">⚠️ No odds set for {resultH}:{resultA} — points will be 0 for correct bets.</p>
+            <p className="text-xs text-yellow-600 mt-2">⚠️ Brak kursu dla {resultH}:{resultA} — trafione zakłady dadzą 0 punktów.</p>
           )}
         </div>
       )}
@@ -326,17 +326,17 @@ export function FixtureDetail() {
         <div className="flex justify-end">
           <button
             onClick={unlockFixture}
-            className="text-xs text-red-500 hover:text-red-400 px-3 py-1.5 rounded border border-red-900 hover:border-red-700 transition-colors"
+            className="text-xs text-red-500 hover:text-red-400 px-3 py-1.5 rounded border border-red-200 hover:border-red-400 transition-colors"
           >
-            Unlock match
+            Odblokuj mecz
           </button>
         </div>
       )}
 
       {/* Bets */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <h2 className="text-sm font-semibold text-gray-400 mb-3">
-          Player Bets
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <h2 className="text-sm font-semibold text-gray-500 mb-3">
+          Zakłady graczy
         </h2>
 
         {!isLocked && (players?.length ?? 0) > 0 && (
@@ -344,29 +344,29 @@ export function FixtureDetail() {
             <select
               value={betPlayerId}
               onChange={(e) => setBetPlayerId(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-green-500 flex-1"
+              className="bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-900 text-sm focus:outline-none focus:border-green-500 flex-1"
             >
-              <option value="">Select player…</option>
+              <option value="">Wybierz gracza…</option>
               {players?.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            <span className="text-sm text-gray-400">{fixture.homeTeam}</span>
+            <span className="text-sm text-gray-500">{fixture.homeTeam}</span>
             <ScoreSelect value={betH} onChange={setBetH} />
-            <span className="text-gray-500">:</span>
+            <span className="text-gray-400">:</span>
             <ScoreSelect value={betA} onChange={setBetA} />
-            <span className="text-sm text-gray-400">{fixture.awayTeam}</span>
+            <span className="text-sm text-gray-500">{fixture.awayTeam}</span>
             <button
               type="submit"
               className="bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm transition-colors"
             >
-              Save Bet
+              Zapisz zakład
             </button>
           </form>
         )}
 
         {(players?.length ?? 0) === 0 && (
-          <p className="text-gray-600 text-sm">Add players first.</p>
+          <p className="text-gray-400 text-sm">Najpierw dodaj graczy.</p>
         )}
 
         {(players?.length ?? 0) > 0 && (
@@ -378,30 +378,30 @@ export function FixtureDetail() {
                 <div
                   key={p.id}
                   className={`flex items-center gap-3 px-3 py-2 rounded text-sm ${
-                    score ? 'bg-green-950 border border-green-900' : 'bg-gray-800'
+                    score ? 'bg-green-50 border border-green-200' : 'bg-gray-50'
                   }`}
                 >
-                  <span className="flex-1 text-white">{p.name}</span>
+                  <span className="flex-1 text-gray-900">{p.name}</span>
                   {bet ? (
-                    <span className="font-mono text-gray-300">
+                    <span className="font-mono text-gray-700">
                       {bet.homeScore}:{bet.awayScore}
                     </span>
                   ) : (
-                    <span className="text-gray-600 italic text-xs">no bet</span>
+                    <span className="text-gray-400 italic text-xs">brak zakładu</span>
                   )}
                   {score && (
-                    <span className="text-green-400 font-bold">+{score.points.toFixed(2)} pts</span>
+                    <span className="text-green-600 font-bold">+{score.points.toFixed(2)} pkt</span>
                   )}
                   {isLocked && bet && !score && (
-                    <span className="text-gray-600 text-xs">missed</span>
+                    <span className="text-gray-400 text-xs">chybił</span>
                   )}
                   {!isLocked && bet && (
                     <button
                       onClick={async () => {
                         await db.bets.where('[playerId+fixtureId]').equals([p.id, fixture.id]).delete();
                       }}
-                      className="text-gray-600 hover:text-red-500 text-xs transition-colors"
-                      title="Remove bet"
+                      className="text-gray-400 hover:text-red-500 text-xs transition-colors"
+                      title="Usuń zakład"
                     >
                       ×
                     </button>
@@ -414,55 +414,55 @@ export function FixtureDetail() {
       </div>
 
       {/* Odds */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-400">Odds Table</h2>
+          <h2 className="text-sm font-semibold text-gray-500">Tabela kursów</h2>
           <div className="flex items-center gap-2">
             <button
               onClick={fetchOddsFromApi}
               disabled={fetchingOdds}
-              className="text-xs bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-blue-200 px-3 py-1.5 rounded transition-colors"
+              className="text-xs bg-blue-100 hover:bg-blue-200 disabled:opacity-50 text-blue-700 px-3 py-1.5 rounded transition-colors"
               title="Pobierz kursy z The Odds API"
             >
               {fetchingOdds ? '⏳ Pobieranie…' : '🔄 Pobierz kursy'}
             </button>
             <button
               onClick={showOdds ? () => setShowOdds(false) : initOddsInputs}
-              className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors"
+              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded transition-colors"
             >
-              {showOdds ? 'Cancel' : oddsMap.size > 0 ? 'Edit Odds' : 'Enter Odds'}
+              {showOdds ? 'Anuluj' : oddsMap.size > 0 ? 'Edytuj kursy' : 'Wprowadź kursy'}
             </button>
           </div>
         </div>
 
         {fetchOddsError && (
-          <p className="text-xs text-red-400 mb-3 bg-red-950 border border-red-900 rounded px-3 py-2">
+          <p className="text-xs text-red-500 mb-3 bg-red-50 border border-red-200 rounded px-3 py-2">
             ⚠️ {fetchOddsError}
           </p>
         )}
         {fetchOddsSuccess && (
-          <p className="text-xs text-green-400 mb-3 bg-green-950 border border-green-900 rounded px-3 py-2">
+          <p className="text-xs text-green-600 mb-3 bg-green-50 border border-green-200 rounded px-3 py-2">
             ✓ {fetchOddsSuccess}
           </p>
         )}
 
         {showOdds ? (
           <div className="space-y-3">
-            <p className="text-xs text-gray-500">Enter decimal odds for each score (0–5). Leave blank to skip.</p>
+            <p className="text-xs text-gray-400">Wprowadź kursy dziesiętne dla każdego wyniku (0–5). Zostaw puste, aby pominąć.</p>
             <div className="overflow-x-auto">
               <table className="text-xs w-full">
                 <thead>
                   <tr>
-                    <th className="text-gray-600 text-left pb-1 pr-2">Away ↓ / Home →</th>
+                    <th className="text-gray-400 text-left pb-1 pr-2">Wyjazd ↓ / Gospodarz →</th>
                     {SCORES.map((h) => (
-                      <th key={h} className="text-gray-400 font-mono pb-1 px-1">{h}</th>
+                      <th key={h} className="text-gray-500 font-mono pb-1 px-1">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {SCORES.map((a) => (
                     <tr key={a}>
-                      <td className="text-gray-400 font-mono pr-2 py-0.5">{a}</td>
+                      <td className="text-gray-500 font-mono pr-2 py-0.5">{a}</td>
                       {SCORES.map((h) => {
                         const key = `${h}:${a}`;
                         return (
@@ -475,7 +475,7 @@ export function FixtureDetail() {
                               onChange={(e) =>
                                 setOddsInputs((prev) => ({ ...prev, [key]: e.target.value }))
                               }
-                              className="w-14 bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-white font-mono text-xs focus:outline-none focus:border-green-500"
+                              className="w-14 bg-gray-50 border border-gray-300 rounded px-1 py-0.5 text-gray-900 font-mono text-xs focus:outline-none focus:border-green-500"
                             />
                           </td>
                         );
@@ -489,7 +489,7 @@ export function FixtureDetail() {
               onClick={saveOdds}
               className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
             >
-              Save Odds
+              Zapisz kursy
             </button>
           </div>
         ) : oddsMap.size > 0 ? (
@@ -497,16 +497,16 @@ export function FixtureDetail() {
             <table className="text-xs w-full">
               <thead>
                 <tr>
-                  <th className="text-gray-600 text-left pb-1 pr-2">Away ↓ / Home →</th>
+                  <th className="text-gray-400 text-left pb-1 pr-2">Wyjazd ↓ / Gospodarz →</th>
                   {SCORES.map((h) => (
-                    <th key={h} className="text-gray-400 font-mono pb-1 px-2">{h}</th>
+                    <th key={h} className="text-gray-500 font-mono pb-1 px-2">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {SCORES.map((a) => (
                   <tr key={a}>
-                    <td className="text-gray-400 font-mono pr-2 py-0.5">{a}</td>
+                    <td className="text-gray-500 font-mono pr-2 py-0.5">{a}</td>
                     {SCORES.map((h) => {
                       const key = `${h}:${a}`;
                       const odd = oddsMap.get(key);
@@ -515,7 +515,7 @@ export function FixtureDetail() {
                         <td
                           key={h}
                           className={`px-2 py-0.5 font-mono text-center rounded ${
-                            isResult ? 'bg-green-900 text-green-300 font-bold' : odd ? 'text-gray-300' : 'text-gray-700'
+                            isResult ? 'bg-green-100 text-green-700 font-bold' : odd ? 'text-gray-700' : 'text-gray-300'
                           }`}
                         >
                           {odd ? odd.toFixed(2) : '–'}
@@ -528,7 +528,7 @@ export function FixtureDetail() {
             </table>
           </div>
         ) : (
-          <p className="text-gray-600 text-sm">No odds set yet.</p>
+          <p className="text-gray-400 text-sm">Brak kursów.</p>
         )}
       </div>
     </div>
