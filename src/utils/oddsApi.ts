@@ -1,3 +1,5 @@
+import { toStoredTeamName } from './displayNames';
+
 /**
  * Odds fetcher using api-football.com (api-sports.io).
  *
@@ -69,8 +71,9 @@ const TEAM_NAME_ALIASES: Record<string, string> = {
 };
 
 function normalizeTeamName(name: string): string {
-  const lower = name.toLowerCase().trim();
-  return TEAM_NAME_ALIASES[lower] ?? name;
+  const canonicalName = toStoredTeamName(name);
+  const lower = canonicalName.toLowerCase().trim();
+  return TEAM_NAME_ALIASES[lower] ?? canonicalName;
 }
 
 function teamsMatch(apiName: string, fixtureName: string): boolean {

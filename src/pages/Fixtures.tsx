@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { FixturePanel } from '../components/FixturePanel';
+import { displayStageName, displayTeamName } from '../utils/displayNames';
 
 const ROUNDS = [
   'Group A','Group B','Group C','Group D','Group E','Group F',
@@ -21,6 +22,8 @@ export function Fixtures() {
   const fixtures = useLiveQuery(() => db.fixtures.orderBy('date').toArray(), []);
   const allBets = useLiveQuery(() => db.bets.toArray(), []);
   const allOdds = useLiveQuery(() => db.odds.toArray(), []);
+  const allMatchOdds = useLiveQuery(() => db.matchOdds.toArray(), []);
+  const allScores = useLiveQuery(() => db.scores.toArray(), []);
   const players = useLiveQuery(() => db.players.toArray(), []);
 
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'locked'>('all');
@@ -32,8 +35,22 @@ export function Fixtures() {
   for (const b of (allBets ?? [])) {
     betCountMap.set(b.fixtureId, (betCountMap.get(b.fixtureId) ?? 0) + 1);
   }
+  const hitCountMap = new Map<string, number>();
+  for (const score of (allScores ?? [])) {
+    hitCountMap.set(score.fixtureId, (hitCountMap.get(score.fixtureId) ?? 0) + 1);
+  }
   const totalPlayers = (players ?? []).length;
-  const fixturesWithOdds = new Set((allOdds ?? []).map((o) => o.fixtureId));
+  const fixturesWithFetchedOdds = new Set<string>();
+  for (const odd of (allOdds ?? [])) {
+    if (odd.provider || odd.fetchedAt) {
+      fixturesWithFetchedOdds.add(odd.fixtureId);
+    }
+  }
+  for (const matchOdd of (allMatchOdds ?? [])) {
+    if (matchOdd.fetchedAt) {
+      fixturesWithFetchedOdds.add(matchOdd.fixtureId);
+    }
+  }
 
   const filtered = (fixtures ?? []).filter((f) => {
     if (filter !== 'all' && f.status !== filter) return false;
@@ -66,7 +83,7 @@ export function Fixtures() {
         >
           <option value="all">Wszystkie rundy</option>
           {ROUNDS.map((r) => (
-            <option key={r} value={r}>{r}</option>
+            <option key={r} value={r}>{displayStageName(r)}</option>
           ))}
         </select>
 
@@ -100,7 +117,8 @@ export function Fixtures() {
             {games.map((f) => {
               const isExpanded = expandedId === f.id;
               const betCount = betCountMap.get(f.id) ?? 0;
-              const hasOdds = fixturesWithOdds.has(f.id);
+              const hitCount = hitCountMap.get(f.id) ?? 0;
+              const hasFetchedOdds = fixturesWithFetchedOdds.has(f.id);
               return (
                 <div key={f.id} className="rounded-lg overflow-hidden border border-gray-200 hover:border-gray-300 transition-colors">
                   <button
@@ -109,13 +127,13 @@ export function Fixtures() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs text-gray-400">{f.group ?? f.round}</span>
+                        <span className="text-xs text-gray-400">{displayStageName(f.group ?? f.round)}</span>
                         {f.utcTime && (
                           <span className="text-xs text-gray-400">{f.utcTime} UTC</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-gray-900 font-medium">{f.homeTeam}</span>
+                        <span className="text-gray-900 font-medium">{displayTeamName(f.homeTeam)}</span>
                         {f.status === 'locked' ? (
                           <span className="text-green-600 font-bold font-mono text-sm px-2">
                             {f.homeScore}:{f.awayScore}
@@ -123,7 +141,7 @@ export function Fixtures() {
                         ) : (
                           <span className="text-gray-400 font-mono text-sm px-2">vs</span>
                         )}
-                        <span className="text-gray-900 font-medium">{f.awayTeam}</span>
+                        <span className="text-gray-900 font-medium">{displayTeamName(f.awayTeam)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -132,17 +150,25 @@ export function Fixtures() {
                         title={`Zakłady: ${betCount}/${totalPlayers}`}
                         className={`flex items-center gap-0.5 text-xs ${betCount > 0 ? 'text-green-500' : 'text-gray-300'}`}
                       >
-                        🎯
+                        👤
                         {totalPlayers > 0 && (
                           <span className="font-mono">{betCount}/{totalPlayers}</span>
                         )}
                       </span>
-                      <span
-                        title={hasOdds ? 'Kursy pobrane' : 'Brak kursów'}
-                        className={hasOdds ? 'text-blue-500' : 'text-gray-300'}
-                      >
-                        📊
-                      </span>
+                      {f.status === 'locked' && totalPlayers > 0 && (
+                        <span
+                          title={`Trafienia: ${hitCount}/${totalPlayers}`}
+                          className="flex items-center gap-0.5 text-xs"
+                        >
+                          🎯
+                          <span className="font-mono">{hitCount}/{totalPlayers}</span>
+                        </span>
+                      )}
+                      {hasFetchedOdds && (
+                        <span title="Kursy pobrane przez hosta" className="text-blue-500">
+                          📊
+                        </span>
+                      )}
                       {statusBadge(f.status)}
                       <span className={`text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>›</span>
                     </div>

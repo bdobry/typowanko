@@ -5,6 +5,7 @@ import { recalcFixture } from '../utils/scoring';
 import { fetchAllOdds, getApiFootballKey } from '../utils/oddsApi';
 import { fetchMatchResult } from '../utils/footballDataApi';
 import { useSync } from '../sync/syncContextValue';
+import { displayStageName, displayTeamName, toStoredTeamName } from '../utils/displayNames';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
 
@@ -70,11 +71,11 @@ function PlayerBetForm({
         <span className="text-sm font-medium text-blue-900 flex-1">
           Twój zakład
         </span>
-        <span className="text-sm text-blue-800">{fixture.homeTeam}</span>
+        <span className="text-sm text-blue-800">{displayTeamName(fixture.homeTeam)}</span>
         <ScoreSelect value={homeScore} onChange={setHomeScore} />
         <span className="text-blue-400">:</span>
         <ScoreSelect value={awayScore} onChange={setAwayScore} />
-        <span className="text-sm text-blue-800">{fixture.awayTeam}</span>
+        <span className="text-sm text-blue-800">{displayTeamName(fixture.awayTeam)}</span>
         <button
           type="submit"
           disabled={saving || syncing}
@@ -170,7 +171,7 @@ export function FixturePanel({ id }: { id: string }) {
 
   async function lockFixture() {
     if (isViewer) return;
-    if (!confirm(`Zablokować wynik ${resultH}:${resultA} dla ${fixture!.homeTeam} vs ${fixture!.awayTeam}?`)) return;
+    if (!confirm(`Zablokować wynik ${resultH}:${resultA} dla ${displayTeamName(fixture!.homeTeam)} vs ${displayTeamName(fixture!.awayTeam)}?`)) return;
     await db.fixtures.update(fixture!.id, {
       status: 'locked',
       homeScore: resultH,
@@ -224,8 +225,8 @@ export function FixturePanel({ id }: { id: string }) {
   async function saveTeams() {
     if (isViewer) return;
     await db.fixtures.update(fixture!.id, {
-      homeTeam: editHome.trim() || fixture!.homeTeam,
-      awayTeam: editAway.trim() || fixture!.awayTeam,
+      homeTeam: toStoredTeamName(editHome) || fixture!.homeTeam,
+      awayTeam: toStoredTeamName(editAway) || fixture!.awayTeam,
     });
     markDirty();
     setEditTeams(false);
@@ -380,7 +381,7 @@ export function FixturePanel({ id }: { id: string }) {
       {/* Header card */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-gray-400">{fixture.group ?? fixture.round}</span>
+          <span className="text-xs text-gray-400">{displayStageName(fixture.group ?? fixture.round)}</span>
           {isLocked ? (
             <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Zakończony</span>
           ) : (
@@ -393,14 +394,14 @@ export function FixturePanel({ id }: { id: string }) {
             <input
               value={editHome}
               onChange={(e) => setEditHome(e.target.value)}
-              placeholder={fixture.homeTeam}
+              placeholder={displayTeamName(fixture.homeTeam)}
               className="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1 text-gray-900 focus:outline-none text-sm"
             />
             <span className="text-gray-400">vs</span>
             <input
               value={editAway}
               onChange={(e) => setEditAway(e.target.value)}
-              placeholder={fixture.awayTeam}
+              placeholder={displayTeamName(fixture.awayTeam)}
               className="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1 text-gray-900 focus:outline-none text-sm"
             />
             <button onClick={saveTeams} className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded transition-colors">Zapisz</button>
@@ -408,7 +409,7 @@ export function FixturePanel({ id }: { id: string }) {
           </div>
         ) : (
           <div className="flex items-center gap-4 mt-2">
-            <span className="text-xl font-bold text-gray-900 flex-1">{fixture.homeTeam}</span>
+            <span className="text-xl font-bold text-gray-900 flex-1">{displayTeamName(fixture.homeTeam)}</span>
             {isLocked ? (
               <span className="text-3xl font-bold text-green-600 font-mono">
                 {fixture.homeScore}:{fixture.awayScore}
@@ -416,10 +417,10 @@ export function FixturePanel({ id }: { id: string }) {
             ) : (
               <span className="text-gray-400 font-mono text-xl">vs</span>
             )}
-            <span className="text-xl font-bold text-gray-900 flex-1 text-right">{fixture.awayTeam}</span>
+            <span className="text-xl font-bold text-gray-900 flex-1 text-right">{displayTeamName(fixture.awayTeam)}</span>
             {!isLocked && !isViewer && (
               <button
-                onClick={() => { setEditHome(fixture.homeTeam); setEditAway(fixture.awayTeam); setEditTeams(true); }}
+                onClick={() => { setEditHome(displayTeamName(fixture.homeTeam)); setEditAway(displayTeamName(fixture.awayTeam)); setEditTeams(true); }}
                 className="text-gray-400 hover:text-gray-600 text-xs ml-2 transition-colors"
                 title="Edytuj drużyny (faza pucharowa)"
               >
@@ -443,11 +444,11 @@ export function FixturePanel({ id }: { id: string }) {
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <h2 className="text-sm font-semibold text-gray-500 mb-3">Ustaw wynik i zablokuj</h2>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm text-gray-700 w-24 truncate text-right">{fixture.homeTeam}</span>
+            <span className="text-sm text-gray-700 w-24 truncate text-right">{displayTeamName(fixture.homeTeam)}</span>
             <ScoreSelect value={resultH} onChange={setResultH} />
             <span className="text-gray-400">:</span>
             <ScoreSelect value={resultA} onChange={setResultA} />
-            <span className="text-sm text-gray-700 w-24 truncate">{fixture.awayTeam}</span>
+            <span className="text-sm text-gray-700 w-24 truncate">{displayTeamName(fixture.awayTeam)}</span>
             <button
               onClick={fetchResultFromApi}
               disabled={fetchingResult}
@@ -518,11 +519,11 @@ export function FixturePanel({ id }: { id: string }) {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            <span className="text-sm text-gray-500">{fixture.homeTeam}</span>
+            <span className="text-sm text-gray-500">{displayTeamName(fixture.homeTeam)}</span>
             <ScoreSelect value={betH} onChange={setBetH} />
             <span className="text-gray-400">:</span>
             <ScoreSelect value={betA} onChange={setBetA} />
-            <span className="text-sm text-gray-500">{fixture.awayTeam}</span>
+            <span className="text-sm text-gray-500">{displayTeamName(fixture.awayTeam)}</span>
             <button
               type="submit"
               className="bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm transition-colors"

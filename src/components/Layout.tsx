@@ -1,4 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 import { useSync } from '../sync/syncContextValue';
 
 const navItems = [
@@ -9,15 +11,19 @@ const navItems = [
 ];
 
 export function Layout() {
-  const { role, pending, syncing, error, revision } = useSync();
+  const { role, playerId, pending, syncing, error, revision } = useSync();
+  const currentPlayer = useLiveQuery(
+    () => playerId ? db.players.get(playerId) : undefined,
+    [playerId],
+  );
+  const accountLabel =
+    role === 'player'
+      ? currentPlayer?.name ?? 'Gracz'
+      : role === 'viewer'
+      ? 'Gość'
+      : 'Host';
   const roleLabel =
-    role === 'viewer'
-      ? 'Viewer'
-      : role === 'player'
-      ? 'Gracz'
-      : role === 'host'
-      ? `Host · rev ${revision ?? '-'}`
-      : 'Host lokalny';
+    role === 'host' ? `${accountLabel} · rev ${revision ?? '-'}` : accountLabel;
   const syncLabel = error ? 'Błąd sync' : syncing ? 'Sync…' : pending ? 'Do wysłania' : roleLabel;
 
   return (

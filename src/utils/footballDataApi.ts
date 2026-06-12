@@ -1,4 +1,5 @@
 import { getApiFootballKey, ODDS_API_KEY_STORAGE_KEY } from './oddsApi';
+import { toStoredTeamName } from './displayNames';
 
 const API_BASE = 'https://v3.football.api-sports.io';
 const WC_LEAGUE_ID = 1; // FIFA World Cup
@@ -33,8 +34,9 @@ const TEAM_NAME_ALIASES: Record<string, string> = {
 };
 
 function normalizeTeamName(name: string): string {
-  const lower = name.toLowerCase().trim();
-  return TEAM_NAME_ALIASES[lower] ?? name;
+  const canonicalName = toStoredTeamName(name);
+  const lower = canonicalName.toLowerCase().trim();
+  return TEAM_NAME_ALIASES[lower] ?? canonicalName;
 }
 
 function teamsMatch(apiName: string, fixtureName: string): boolean {
