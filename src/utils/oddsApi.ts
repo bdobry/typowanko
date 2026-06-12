@@ -17,6 +17,7 @@ import { toStoredTeamName } from './displayNames';
 const API_BASE = 'https://v3.football.api-sports.io';
 const WC_LEAGUE_ID = 1; // FIFA World Cup
 const WC_SEASON = 2026;
+const FIXTURE_TIMEZONE = 'UTC';
 
 export const ODDS_API_KEY_STORAGE_KEY = 'apiFootballKey';
 export const CORRECT_SCORE_BET_ID_KEY = 'correctScoreBetId';
@@ -80,6 +81,16 @@ function teamsMatch(apiName: string, fixtureName: string): boolean {
   const a = normalizeTeamName(apiName).toLowerCase();
   const b = normalizeTeamName(fixtureName).toLowerCase();
   return a === b || a.includes(b) || b.includes(a);
+}
+
+function addUtcDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function fixtureSearchDates(date: string): string[] {
+  return [date, addUtcDays(date, 1), addUtcDays(date, -1)];
 }
 
 /**
@@ -255,33 +266,47 @@ async function resolveFixtureId(
   date: string,
   apiKey: string,
 ): Promise<number> {
-  console.log(`🔍 Finding fixture for ${homeTeam} vs ${awayTeam} on ${date}...`);
-  const fixturesUrl = new URL(`${API_BASE}/fixtures`);
-  fixturesUrl.searchParams.set('date', date);
-  fixturesUrl.searchParams.set('league', String(WC_LEAGUE_ID));
-  fixturesUrl.searchParams.set('season', String(WC_SEASON));
+  console.log(`🔍 Finding fixture for ${homeTeam} vs ${awayTeam} around ${date} (${FIXTURE_TIMEZONE})...`);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fixturesData = (await apiGet(fixturesUrl, apiKey)) as any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fixturesList: any[] = fixturesData.response ?? [];
+  for (const searchDate of fixtureSearchDates(date)) {
+    const fixturesUrl = new URL(`${API_BASE}/fixtures`);
+    fixturesUrl.searchParams.set('date', searchDate);
+    fixturesUrl.searchParams.set('league', String(WC_LEAGUE_ID));
+    fixturesUrl.searchParams.set('season', String(WC_SEASON));
+    fixturesUrl.searchParams.set('timezone', FIXTURE_TIMEZONE);
 
-  const fixtureEntry = fixturesList.find(
-    (f) =>
-      teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
-      teamsMatch(f.teams?.away?.name ?? '', awayTeam),
-  );
+    console.log(`📡 Fetching fixtures: ${fixturesUrl.toString()}`);
 
-  if (!fixtureEntry) {
-    throw new Error(
-      `Nie znaleziono meczu "${homeTeam} vs ${awayTeam}" na ${date}. ` +
-        `Mecz może jeszcze nie być dostępny w API lub nazwy drużyn się różnią.`,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fixturesData = (await apiGet(fixturesUrl, apiKey)) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fixturesList: any[] = fixturesData.response ?? [];
+
+    const fixtureEntry = fixturesList.find(
+      (f) =>
+        teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
+        teamsMatch(f.teams?.away?.name ?? '', awayTeam),
     );
+
+    if (fixtureEntry) {
+      const fixtureId: number = fixtureEntry.fixture.id;
+      const fixtureDate: string | undefined = fixtureEntry.fixture?.date;
+      console.log(
+        searchDate === date
+          ? `✓ Found fixture ID: ${fixtureId}`
+          : `✓ Found fixture ID: ${fixtureId} on ${searchDate} UTC (requested ${date})`,
+      );
+      if (fixtureDate) {
+        console.log(`✓ API fixture date: ${fixtureDate}`);
+      }
+      return fixtureId;
+    }
   }
 
-  const fixtureId: number = fixtureEntry.fixture.id;
-  console.log(`✓ Found fixture ID: ${fixtureId}`);
-  return fixtureId;
+  throw new Error(
+    `Nie znaleziono meczu "${homeTeam} vs ${awayTeam}" dla dat UTC: ${fixtureSearchDates(date).join(', ')}. ` +
+      `Mecz może jeszcze nie być dostępny w API lub nazwy drużyn się różnią.`,
+  );
 }
 
 export async function fetchCorrectScoreOdds(

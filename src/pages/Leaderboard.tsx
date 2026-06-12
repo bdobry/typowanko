@@ -323,6 +323,18 @@ export function Leaderboard() {
 
   if (!data) return <div className="text-gray-400 text-center py-12">Ładowanie…</div>;
 
+  const fixtureById = new Map(data.timeline.map((point) => [point.fixture.id, point.fixture]));
+  const bestHits = data.board
+    .flatMap(({ player, history }) =>
+      history.map((score) => ({
+        ...score,
+        playerName: player.name,
+        fixture: fixtureById.get(score.fixtureId),
+      })),
+    )
+    .sort((a, b) => b.points - a.points)
+    .slice(0, 10);
+
   return (
     <div className="space-y-6">
       {historyPlayer && (
@@ -488,29 +500,61 @@ export function Leaderboard() {
       )}
 
       {/* Best scores */}
-      {data.board.length > 0 && data.board.flatMap(({ history }) => history).length > 0 && (
+      {bestHits.length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Najlepsze trafienia</h2>
-          <div className="space-y-1">
-            {data.board
-              .flatMap(({ player, history }) =>
-                history.map((h) => ({ ...h, playerName: player.name }))
-              )
-              .sort((a, b) => b.points - a.points)
-              .slice(0, 10)
-              .map((h, i) => (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {bestHits.map((hit, index) => {
+              const fixtureName = hit.fixture
+                ? `${displayTeamName(hit.fixture.homeTeam)} – ${displayTeamName(hit.fixture.awayTeam)}`
+                : 'Mecz';
+              const isExact = hit.pointType !== 'outcome';
+
+              return (
                 <div
-                  key={i}
-                  className="text-sm bg-white rounded-lg px-4 py-2.5 flex gap-3 items-center border border-gray-200"
+                  key={String(hit.id ?? `${hit.playerId}:${hit.fixtureId}`)}
+                  className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
                 >
-                  <span className="text-gray-400 text-xs w-5 text-center">{i + 1}.</span>
-                  <span className="text-gray-700 truncate flex-1">{h.playerName}</span>
-                  <span className="text-gray-500 font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">
-                    {h.resultHomeScore}:{h.resultAwayScore}
-                  </span>
-                  <span className="text-green-600 font-bold">+{h.points.toFixed(2)}</span>
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-gray-900 px-2 text-xs font-bold text-white">
+                        {index + 1}
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          isExact
+                            ? 'bg-green-50 text-green-700 ring-1 ring-green-100'
+                            : 'bg-yellow-50 text-yellow-700 ring-1 ring-yellow-100'
+                        }`}
+                      >
+                        {isExact ? 'dokładny' : 'W/D/L'}
+                      </span>
+                    </div>
+                    <span className="text-base font-bold text-green-700">+{formatPoints(hit.points)}</span>
+                  </div>
+
+                  <div className="font-semibold text-gray-900 truncate">{hit.playerName}</div>
+                  <div className="mt-1 text-xs text-gray-500 truncate" title={fixtureName}>
+                    {fixtureName}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded bg-gray-50 px-2 py-1.5">
+                      <div className="text-[10px] uppercase tracking-wider text-gray-400">Typ</div>
+                      <div className="font-mono font-semibold text-gray-800">
+                        {hit.betHomeScore}:{hit.betAwayScore}
+                      </div>
+                    </div>
+                    <div className="rounded bg-green-50 px-2 py-1.5">
+                      <div className="text-[10px] uppercase tracking-wider text-green-600">Wynik</div>
+                      <div className="font-mono font-semibold text-green-800">
+                        {hit.resultHomeScore}:{hit.resultAwayScore}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              ))}
+              );
+            })}
           </div>
         </div>
       )}

@@ -25,7 +25,7 @@ export const WC2026_FIXTURES: Omit<Fixture, 'status'>[] = [
   { id: 'C5', round: 'Matchday 14', group: 'Group C', homeTeam: 'Scotland', awayTeam: 'Brazil', date: '2026-06-24', utcTime: '22:00', venue: 'Miami' },
   { id: 'C6', round: 'Matchday 14', group: 'Group C', homeTeam: 'Morocco', awayTeam: 'Haiti', date: '2026-06-24', utcTime: '22:00', venue: 'Atlanta' },
   // ── GROUP D ──────────────────────────────────────────────────────────────────
-  { id: 'D1', round: 'Matchday 2', group: 'Group D', homeTeam: 'USA', awayTeam: 'Paraguay', date: '2026-06-12', utcTime: '01:00', venue: 'Los Angeles' },
+  { id: 'D1', round: 'Matchday 2', group: 'Group D', homeTeam: 'USA', awayTeam: 'Paraguay', date: '2026-06-13', utcTime: '01:00', venue: 'Los Angeles' },
   { id: 'D2', round: 'Matchday 3', group: 'Group D', homeTeam: 'Australia', awayTeam: 'Turkey', date: '2026-06-14', utcTime: '04:00', venue: 'Vancouver' },
   { id: 'D3', round: 'Matchday 9', group: 'Group D', homeTeam: 'USA', awayTeam: 'Australia', date: '2026-06-19', utcTime: '19:00', venue: 'Seattle' },
   { id: 'D4', round: 'Matchday 9', group: 'Group D', homeTeam: 'Turkey', awayTeam: 'Paraguay', date: '2026-06-20', utcTime: '03:00', venue: 'San Francisco' },

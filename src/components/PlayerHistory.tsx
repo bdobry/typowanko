@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { ReactNode } from 'react';
-import { db, type Player } from '../db';
+import { db, type Bet, type Player } from '../db';
 import { displayTeamName } from '../utils/displayNames';
 import { getLeaderboardData } from '../utils/scoring';
 
@@ -32,16 +32,46 @@ function StatBox({
   );
 }
 
+function rankLabelFromValues(
+  playerId: string,
+  values: Array<{ playerId: string; value: number | null }>,
+  playerCount: number,
+) {
+  const ranked = values
+    .filter((entry): entry is { playerId: string; value: number } => entry.value != null)
+    .map((entry) => ({
+      ...entry,
+      value: Math.round((entry.value + Number.EPSILON) * 100) / 100,
+    }))
+    .sort((a, b) => b.value - a.value);
+  let rank = 0;
+  let previousValue: number | null = null;
+
+  for (let index = 0; index < ranked.length; index++) {
+    const entry = ranked[index];
+    if (previousValue == null || entry.value !== previousValue) {
+      rank = index + 1;
+      previousValue = entry.value;
+    }
+    if (entry.playerId === playerId) {
+      return `${rank}/${playerCount}`;
+    }
+  }
+
+  return `–/${playerCount}`;
+}
+
 export function PlayerHistory({ player, onClose }: { player: Player; onClose: () => void }) {
   const currentPlayer = useLiveQuery(() => db.players.get(player.id), [player.id]);
   const bets = useLiveQuery(() => db.bets.where('playerId').equals(player.id).toArray(), [player.id]);
+  const allBets = useLiveQuery(() => db.bets.toArray(), []);
   const fixtures = useLiveQuery(() => db.fixtures.orderBy('date').toArray(), []);
   const scores = useLiveQuery(() => db.scores.where('playerId').equals(player.id).toArray(), [player.id]);
   const odds = useLiveQuery(() => db.odds.toArray(), []);
   const matchOdds = useLiveQuery(() => db.matchOdds.toArray(), []);
   const leaderboard = useLiveQuery(() => getLeaderboardData(), []);
 
-  if (!bets || !fixtures || !scores || !odds || !matchOdds) {
+  if (!bets || !allBets || !fixtures || !scores || !odds || !matchOdds) {
     return <div className="text-gray-400 text-sm">Ładowanie…</div>;
   }
 
@@ -56,6 +86,12 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
   const matchOddsMap = new Map(matchOdds.map((odd) => [odd.fixtureId, odd]));
   const average = (values: number[]) =>
     values.length > 0 ? values.reduce((acc, value) => acc + value, 0) / values.length : null;
+  const averageExactRisk = (playerBets: Bet[]) =>
+    average(
+      playerBets
+        .map((bet) => oddsMap.get(`${bet.fixtureId}:${bet.homeScore}:${bet.awayScore}`))
+        .filter((odd): odd is number => odd != null),
+    );
   const betOutcome = (homeScore: number, awayScore: number) => {
     if (homeScore > awayScore) return 'home';
     if (homeScore < awayScore) return 'away';
@@ -71,11 +107,7 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
   const totalPoints = scores.reduce((acc, score) => acc + score.points, 0);
   const avgPoints = completedBets.length > 0 ? totalPoints / completedBets.length : null;
   const effectiveness = completedBets.length > 0 ? (scores.length / completedBets.length) * 100 : null;
-  const exactRisk = average(
-    sortedBets
-      .map((bet) => oddsMap.get(`${bet.fixtureId}:${bet.homeScore}:${bet.awayScore}`))
-      .filter((odd): odd is number => odd != null),
-  );
+  const exactRisk = averageExactRisk(sortedBets);
   const outcomeRisk = average(
     sortedBets
       .map((bet) => {
@@ -92,6 +124,16 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
   );
   const bestScore = [...scores].sort((a, b) => b.points - a.points)[0];
   const bestFixture = bestScore ? fixtureMap.get(bestScore.fixtureId) : null;
+  const riskRankLabel = leaderboard
+    ? rankLabelFromValues(
+        player.id,
+        leaderboard.board.map((row) => ({
+          playerId: row.player.id,
+          value: averageExactRisk(allBets.filter((bet) => bet.playerId === row.player.id)),
+        })),
+        leaderboard.board.length,
+      )
+    : '–/–';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
@@ -125,14 +167,14 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
                 <span className="inline-flex items-center gap-1">
                   Średnie ryzyko
                   <span
-                    title="Średni kurs wszystkich obstawień z dostępnym kursem: osobno dla dokładnego wyniku i osobno dla W/D/L."
+                    title="Średni kurs wszystkich obstawień z dostępnym kursem. Miejsce w rogu liczone jest po średnim kursie dokładnego wyniku: wyższe ryzyko daje wyższe miejsce."
                     className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-gray-300 text-[9px] text-gray-500"
                   >
                     ?
                   </span>
                 </span>
               }
-              rankLabel={rankLabel}
+              rankLabel={riskRankLabel}
             >
               <div className="mt-1 flex items-center gap-4 text-xs font-bold text-gray-900">
                 <span>Dokł. {exactRisk == null ? '–' : exactRisk.toFixed(2)}</span>

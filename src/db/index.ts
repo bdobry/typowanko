@@ -96,6 +96,20 @@ export class TypowankoDb extends Dexie {
     this.version(2).stores({
       matchOdds: '++id, fixtureId',
     });
+    this.version(3)
+      .stores({})
+      .upgrade(async (tx) => {
+        const fixtures = tx.table('fixtures');
+        const usaParaguay = await fixtures.get('D1');
+        if (
+          usaParaguay?.homeTeam === 'USA' &&
+          usaParaguay?.awayTeam === 'Paraguay' &&
+          usaParaguay.date === '2026-06-12' &&
+          usaParaguay.utcTime === '01:00'
+        ) {
+          await fixtures.update('D1', { date: '2026-06-13' });
+        }
+      });
   }
 }
 
