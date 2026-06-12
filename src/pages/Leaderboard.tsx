@@ -2,10 +2,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Link } from 'react-router-dom';
 import { getLeaderboard } from '../utils/scoring';
 import { db } from '../db';
+import { useSync } from '../sync/syncContextValue';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
 export function Leaderboard() {
+  const { isViewer } = useSync();
   const board = useLiveQuery(() => getLeaderboard(), []);
   const lockedCount = useLiveQuery(() => db.fixtures.where('status').equals('locked').count(), []);
   const totalFixtures = useLiveQuery(() => db.fixtures.count(), []);
@@ -31,7 +33,7 @@ export function Leaderboard() {
       {board.length === 0 && (
         <div className="text-center py-16 text-gray-400">
           <p className="text-4xl mb-3">👥</p>
-          <p>Brak graczy. Dodaj ich w zakładce Gracze!</p>
+          <p>{isViewer ? 'Brak graczy w tej lidze.' : 'Brak graczy. Dodaj ich w zakładce Gracze!'}</p>
         </div>
       )}
 

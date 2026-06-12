@@ -44,6 +44,8 @@ export interface Bet {
   fixtureId: string;
   homeScore: number;
   awayScore: number;
+  updatedAt?: number;
+  updatedBy?: 'host' | 'player';
 }
 
 export interface MatchOdd {
@@ -71,7 +73,9 @@ export interface ScoreEntry {
   pointType?: 'exact' | 'outcome'; // how points were awarded
 }
 
-class TypowankoDb extends Dexie {
+export const HOST_DB_NAME = 'typowanko';
+
+export class TypowankoDb extends Dexie {
   players!: EntityTable<Player, 'id'>;
   fixtures!: EntityTable<Fixture, 'id'>;
   odds!: EntityTable<Odd, 'id'>;
@@ -79,8 +83,8 @@ class TypowankoDb extends Dexie {
   scores!: EntityTable<ScoreEntry & { id?: number }, 'id'>;
   matchOdds!: EntityTable<MatchOdd, 'id'>;
 
-  constructor() {
-    super('typowanko');
+  constructor(name = HOST_DB_NAME) {
+    super(name);
     this.version(1).stores({
       players: 'id, name',
       fixtures: 'id, date, group, status, round',
@@ -94,4 +98,18 @@ class TypowankoDb extends Dexie {
   }
 }
 
-export const db = new TypowankoDb();
+export let db = new TypowankoDb();
+
+export function setActiveDatabase(name: string) {
+  if (db.name === name) return db;
+  db = new TypowankoDb(name);
+  return db;
+}
+
+export function setHostDatabase() {
+  return setActiveDatabase(HOST_DB_NAME);
+}
+
+export function getViewerDatabaseName(leagueId: string) {
+  return `${HOST_DB_NAME}-view-${leagueId}`;
+}

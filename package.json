@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:dev": "npx wrangler dev",
+    "sync:migrate:local": "npx wrangler d1 migrations apply typowanko-sync --local",
+    "sync:migrate": "npx wrangler d1 migrations apply typowanko-sync --remote",
+    "sync:deploy": "npx wrangler deploy"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

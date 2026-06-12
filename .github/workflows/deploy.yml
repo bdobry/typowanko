@@ -41,7 +41,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+          VITE_API_FOOTBALL_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+          VITE_SYNC_API_BASE: ${{ vars.SYNC_API_BASE }}
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

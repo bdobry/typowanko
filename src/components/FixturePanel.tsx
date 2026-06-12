@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Odd } from '../db';
+import { db, type Bet, type Fixture, type Odd } from '../db';
 import { recalcFixture } from '../utils/scoring';
 import { fetchAllOdds, getApiFootballKey } from '../utils/oddsApi';
 import { fetchMatchResult } from '../utils/footballDataApi';
+import { useSync } from '../sync/syncContextValue';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
 
@@ -29,7 +30,73 @@ function ScoreSelect({
   );
 }
 
+function PlayerBetForm({
+  fixture,
+  currentBet,
+}: {
+  fixture: Fixture;
+  currentBet?: Bet;
+}) {
+  const { submitPlayerBet, syncing } = useSync();
+  const [homeScore, setHomeScore] = useState(currentBet?.homeScore ?? 0);
+  const [awayScore, setAwayScore] = useState(currentBet?.awayScore ?? 0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function saveOwnBet(e: React.FormEvent) {
+    e.preventDefault();
+
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await submitPlayerBet(fixture.id, homeScore, awayScore);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={saveOwnBet}
+      className="mb-4 bg-blue-50 border border-blue-200 rounded-lg px-3 py-3 space-y-3"
+    >
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-sm font-medium text-blue-900 flex-1">
+          Twój zakład
+        </span>
+        <span className="text-sm text-blue-800">{fixture.homeTeam}</span>
+        <ScoreSelect value={homeScore} onChange={setHomeScore} />
+        <span className="text-blue-400">:</span>
+        <ScoreSelect value={awayScore} onChange={setAwayScore} />
+        <span className="text-sm text-blue-800">{fixture.awayTeam}</span>
+        <button
+          type="submit"
+          disabled={saving || syncing}
+          className="ml-auto bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm transition-colors"
+        >
+          {saving || syncing ? 'Zapisywanie…' : currentBet ? 'Zmień zakład' : 'Zapisz zakład'}
+        </button>
+      </div>
+      {saved && (
+        <p className="text-xs text-blue-700">Zapisano zakład.</p>
+      )}
+      {error && (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 export function FixturePanel({ id }: { id: string }) {
+  const { isViewer, isPlayer, playerId, markDirty } = useSync();
   const fixture = useLiveQuery(() => db.fixtures.get(id), [id]);
   const players = useLiveQuery(() => db.players.orderBy('name').toArray(), []);
   const bets = useLiveQuery(() => db.bets.where('fixtureId').equals(id).toArray(), [id]);
@@ -58,6 +125,10 @@ export function FixturePanel({ id }: { id: string }) {
   const [fetchingResult, setFetchingResult] = useState(false);
   const [fetchResultError, setFetchResultError] = useState<string | null>(null);
 
+  const currentPlayerBet = playerId
+    ? (bets ?? []).find((bet) => bet.playerId === playerId)
+    : undefined;
+
   if (!fixture) return <div className="text-gray-400 text-center py-8">Ładowanie…</div>;
 
   const oddsMap = new Map<string, number>(
@@ -69,20 +140,36 @@ export function FixturePanel({ id }: { id: string }) {
 
   async function saveBet(e: React.FormEvent) {
     e.preventDefault();
+    if (isViewer) return;
     if (!betPlayerId) return;
     const existing = await db.bets
       .where('[playerId+fixtureId]')
       .equals([betPlayerId, fixture!.id])
       .first();
+    const updatedAt = Date.now();
     if (existing) {
-      await db.bets.update(existing.id!, { homeScore: betH, awayScore: betA });
+      await db.bets.update(existing.id!, {
+        homeScore: betH,
+        awayScore: betA,
+        updatedAt,
+        updatedBy: 'host',
+      });
     } else {
-      await db.bets.add({ playerId: betPlayerId, fixtureId: fixture!.id, homeScore: betH, awayScore: betA });
+      await db.bets.add({
+        playerId: betPlayerId,
+        fixtureId: fixture!.id,
+        homeScore: betH,
+        awayScore: betA,
+        updatedAt,
+        updatedBy: 'host',
+      });
     }
+    markDirty();
     setBetPlayerId('');
   }
 
   async function lockFixture() {
+    if (isViewer) return;
     if (!confirm(`Zablokować wynik ${resultH}:${resultA} dla ${fixture!.homeTeam} vs ${fixture!.awayTeam}?`)) return;
     await db.fixtures.update(fixture!.id, {
       status: 'locked',
@@ -90,15 +177,19 @@ export function FixturePanel({ id }: { id: string }) {
       awayScore: resultA,
     });
     await recalcFixture({ ...fixture!, status: 'locked', homeScore: resultH, awayScore: resultA });
+    markDirty();
   }
 
   async function unlockFixture() {
+    if (isViewer) return;
     if (!confirm('Odblokować mecz? Punkty zostaną usunięte.')) return;
     await db.fixtures.update(fixture!.id, { status: 'upcoming', homeScore: undefined, awayScore: undefined });
     await db.scores.where('fixtureId').equals(fixture!.id).delete();
+    markDirty();
   }
 
   async function saveOdds() {
+    if (isViewer) return;
     const toSave: Omit<Odd, 'id'>[] = [];
     for (const [key, val] of Object.entries(oddsInputs)) {
       const odd = parseFloat(val);
@@ -125,15 +216,18 @@ export function FixturePanel({ id }: { id: string }) {
         }
       }
     });
+    markDirty();
     setOddsInputs({});
     setShowOdds(false);
   }
 
   async function saveTeams() {
+    if (isViewer) return;
     await db.fixtures.update(fixture!.id, {
       homeTeam: editHome.trim() || fixture!.homeTeam,
       awayTeam: editAway.trim() || fixture!.awayTeam,
     });
+    markDirty();
     setEditTeams(false);
   }
 
@@ -150,6 +244,7 @@ export function FixturePanel({ id }: { id: string }) {
   }
 
   async function fetchOddsFromApi() {
+    if (isViewer) return;
     const apiKey = getApiFootballKey();
     if (!apiKey) {
       setFetchOddsError('Brak klucza API. Ustaw go w ⚙️ Settings.');
@@ -244,6 +339,7 @@ export function FixturePanel({ id }: { id: string }) {
       if (skippedCount > 0) {
         message += ` Pominięto ${skippedCount} ręcznie edytowanych/zablokowanych kursów.`;
       }
+      markDirty();
       setFetchOddsSuccess(message);
       setTimeout(() => setFetchOddsSuccess(null), 5000);
     } catch (err) {
@@ -292,7 +388,7 @@ export function FixturePanel({ id }: { id: string }) {
           )}
         </div>
 
-        {editTeams ? (
+        {editTeams && !isViewer ? (
           <div className="flex items-center gap-2 mt-2">
             <input
               value={editHome}
@@ -321,7 +417,7 @@ export function FixturePanel({ id }: { id: string }) {
               <span className="text-gray-400 font-mono text-xl">vs</span>
             )}
             <span className="text-xl font-bold text-gray-900 flex-1 text-right">{fixture.awayTeam}</span>
-            {!isLocked && (
+            {!isLocked && !isViewer && (
               <button
                 onClick={() => { setEditHome(fixture.homeTeam); setEditAway(fixture.awayTeam); setEditTeams(true); }}
                 className="text-gray-400 hover:text-gray-600 text-xs ml-2 transition-colors"
@@ -343,7 +439,7 @@ export function FixturePanel({ id }: { id: string }) {
       </div>
 
       {/* Lock / Unlock */}
-      {!isLocked && (
+      {!isLocked && !isViewer && (
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <h2 className="text-sm font-semibold text-gray-500 mb-3">Ustaw wynik i zablokuj</h2>
           <div className="flex items-center gap-3 flex-wrap">
@@ -381,7 +477,7 @@ export function FixturePanel({ id }: { id: string }) {
         </div>
       )}
 
-      {isLocked && (
+      {isLocked && !isViewer && (
         <div className="flex justify-end">
           <button
             onClick={unlockFixture}
@@ -396,7 +492,21 @@ export function FixturePanel({ id }: { id: string }) {
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">Zakłady graczy</h2>
 
-        {!isLocked && (players?.length ?? 0) > 0 && (
+        {isPlayer && !isLocked && playerId && (
+          <PlayerBetForm
+            key={`${fixture.id}:${currentPlayerBet?.homeScore ?? 'x'}:${currentPlayerBet?.awayScore ?? 'x'}`}
+            fixture={fixture}
+            currentBet={currentPlayerBet}
+          />
+        )}
+
+        {isPlayer && isLocked && (
+          <p className="mb-4 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+            Mecz jest zablokowany. Zakładów nie można już zmieniać.
+          </p>
+        )}
+
+        {!isLocked && !isViewer && (players?.length ?? 0) > 0 && (
           <form onSubmit={saveBet} className="flex items-center gap-2 mb-4 flex-wrap">
             <select
               value={betPlayerId}
@@ -435,10 +545,21 @@ export function FixturePanel({ id }: { id: string }) {
                 <div
                   key={p.id}
                   className={`flex items-center gap-3 px-3 py-2 rounded text-sm ${
-                    score ? 'bg-green-50 border border-green-200' : 'bg-gray-50'
+                    p.id === playerId
+                      ? 'bg-blue-50 border border-blue-200'
+                      : score
+                      ? 'bg-green-50 border border-green-200'
+                      : 'bg-gray-50'
                   }`}
                 >
-                  <span className="flex-1 text-gray-900">{p.name}</span>
+                  <span className="flex-1 text-gray-900">
+                    {p.name}
+                    {p.id === playerId && (
+                      <span className="text-[10px] text-blue-600 bg-blue-100 rounded-full px-2 py-0.5 ml-2">
+                        Ty
+                      </span>
+                    )}
+                  </span>
                   {bet ? (
                     <span className="font-mono text-gray-700">
                       {bet.homeScore}:{bet.awayScore}
@@ -457,10 +578,11 @@ export function FixturePanel({ id }: { id: string }) {
                   {isLocked && bet && !score && (
                     <span className="text-gray-400 text-xs">chybił</span>
                   )}
-                  {!isLocked && bet && (
+                  {!isLocked && !isViewer && bet && (
                     <button
                       onClick={async () => {
                         await db.bets.where('[playerId+fixtureId]').equals([p.id, fixture.id]).delete();
+                        markDirty();
                       }}
                       className="text-gray-400 hover:text-red-500 text-xs transition-colors"
                       title="Usuń zakład"
@@ -479,22 +601,24 @@ export function FixturePanel({ id }: { id: string }) {
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-500">Tabela kursów</h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={fetchOddsFromApi}
-              disabled={fetchingOdds}
-              className="text-xs bg-blue-100 hover:bg-blue-200 disabled:opacity-50 text-blue-700 px-3 py-1.5 rounded transition-colors"
-              title="Pobierz kursy z The Odds API"
-            >
-              {fetchingOdds ? '⏳ Pobieranie…' : '🔄 Pobierz kursy'}
-            </button>
-            <button
-              onClick={showOdds ? () => setShowOdds(false) : initOddsInputs}
-              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded transition-colors"
-            >
-              {showOdds ? 'Anuluj' : oddsMap.size > 0 ? 'Edytuj kursy' : 'Wprowadź kursy'}
-            </button>
-          </div>
+          {!isViewer && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchOddsFromApi}
+                disabled={fetchingOdds}
+                className="text-xs bg-blue-100 hover:bg-blue-200 disabled:opacity-50 text-blue-700 px-3 py-1.5 rounded transition-colors"
+                title="Pobierz kursy z The Odds API"
+              >
+                {fetchingOdds ? '⏳ Pobieranie…' : '🔄 Pobierz kursy'}
+              </button>
+              <button
+                onClick={showOdds ? () => setShowOdds(false) : initOddsInputs}
+                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded transition-colors"
+              >
+                {showOdds ? 'Anuluj' : oddsMap.size > 0 ? 'Edytuj kursy' : 'Wprowadź kursy'}
+              </button>
+            </div>
+          )}
         </div>
 
         {fetchOddsError && (
@@ -508,7 +632,7 @@ export function FixturePanel({ id }: { id: string }) {
           </p>
         )}
 
-        {showOdds ? (
+        {showOdds && !isViewer ? (
           <div className="space-y-3">
             <p className="text-xs text-gray-400">Wprowadź kursy dziesiętne dla każdego wyniku (0–5). Zostaw puste, aby pominąć.</p>
             <div className="overflow-x-auto">

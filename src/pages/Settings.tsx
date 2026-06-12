@@ -1,7 +1,10 @@
 import { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 import {
   ODDS_API_KEY_STORAGE_KEY,
   CORRECT_SCORE_BET_ID_KEY,
+  MATCH_WINNER_BET_ID_KEY,
   DEFAULT_BOOKMAKER_ID_KEY,
   DEFAULT_BOOKMAKER_NAME,
   getCachedConfigIds,
@@ -9,10 +12,31 @@ import {
   resolveBet365BookmakerId,
   getApiFootballKey,
 } from '../utils/oddsApi';
+import { useSync } from '../sync/syncContextValue';
 
 const ENV_API_FOOTBALL_KEY = (import.meta.env.VITE_API_FOOTBALL_KEY as string | undefined) ?? '';
 
 export function Settings() {
+  const {
+    role,
+    isViewer,
+    credential,
+    revision,
+    lastSyncAt,
+    syncing,
+    pending,
+    error: syncError,
+    notice: syncNotice,
+    cloudIds,
+    apiBase,
+    createCloudLeague,
+    syncNow,
+    regeneratePlayerCodes,
+    downloadBackup,
+    clearCloudSession,
+  } = useSync();
+  const players = useLiveQuery(() => db.players.toArray(), []);
+  const [syncActionError, setSyncActionError] = useState<string | null>(null);
   const [oddsApiKey, setOddsApiKey] = useState(
     () => localStorage.getItem(ODDS_API_KEY_STORAGE_KEY) ?? '',
   );
@@ -48,6 +72,7 @@ export function Settings() {
 
   function clearConfig() {
     localStorage.removeItem(CORRECT_SCORE_BET_ID_KEY);
+    localStorage.removeItem(MATCH_WINNER_BET_ID_KEY);
     localStorage.removeItem(DEFAULT_BOOKMAKER_ID_KEY);
     setConfigStatus({ betId: null, bookmakerId: null });
     setConfigError(null);
@@ -72,11 +97,293 @@ export function Settings() {
     }
   }
 
+  async function createLeague() {
+    setSyncActionError(null);
+    try {
+      await createCloudLeague();
+    } catch (err) {
+      setSyncActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function runSyncNow() {
+    setSyncActionError(null);
+    try {
+      await syncNow();
+    } catch (err) {
+      setSyncActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function runRegeneratePlayerCodes() {
+    const hasExistingCodes = (cloudIds?.playerCodes.length ?? 0) > 0;
+    if (
+      hasExistingCodes &&
+      !confirm('Wygenerować nowe Player ID? Stare Player ID przestaną działać.')
+    ) {
+      return;
+    }
+
+    setSyncActionError(null);
+    try {
+      await regeneratePlayerCodes();
+    } catch (err) {
+      setSyncActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function runBackup() {
+    setSyncActionError(null);
+    try {
+      await downloadBackup();
+    } catch (err) {
+      setSyncActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function leaveCloudSession() {
+    if (role === 'host' && !confirm('Odłączyć to urządzenie od cloud sync? Lokalne dane gospodarza zostaną w przeglądarce.')) {
+      return;
+    }
+    await clearCloudSession();
+  }
+
+  async function copyText(value: string) {
+    await navigator.clipboard?.writeText(value);
+  }
+
+  const playerNameById = new Map((players ?? []).map((player) => [player.id, player.name]));
+  const currentPlayerName = credential?.playerId
+    ? playerNameById.get(credential.playerId)
+    : null;
+  const lastSyncLabel = lastSyncAt
+    ? new Date(lastSyncAt).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })
+    : 'nigdy';
+
   return (
-    <div className="space-y-6 max-w-lg">
+    <div className="space-y-6 max-w-2xl">
       <h1 className="text-xl font-bold text-gray-900">Ustawienia</h1>
 
+      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">Cloud sync</h2>
+          <p className="text-xs text-gray-500 leading-relaxed">
+            Lokalna baza zostaje w przeglądarce gospodarza. Cloud sync zapisuje pełny snapshot
+            w Cloudflare D1, żeby znajomi mogli otworzyć podgląd przez Viewer ID.
+          </p>
+        </div>
+
+        <div className="bg-gray-50 rounded p-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-gray-500">Tryb:</span>
+            <span className="font-medium text-gray-800">
+              {role === 'viewer'
+                ? 'Viewer'
+                : role === 'player'
+                ? `Gracz${currentPlayerName ? ` · ${currentPlayerName}` : ''}`
+                : role === 'host'
+                ? 'Host cloud'
+                : 'Host lokalny'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-gray-500">Liga:</span>
+            <span className="font-mono text-gray-800">{credential?.leagueId ?? 'lokalna'}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-gray-500">Rewizja:</span>
+            <span className="font-mono text-gray-800">{revision ?? '-'}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-gray-500">Ostatni sync:</span>
+            <span className="text-gray-800">{lastSyncLabel}</span>
+          </div>
+        </div>
+
+        {!apiBase && (
+          <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+            Brak <code>VITE_SYNC_API_BASE</code>. Włączysz tryb lokalny i backup, ale cloud sync
+            wymaga adresu Cloudflare Workera w konfiguracji builda.
+          </p>
+        )}
+
+        {(syncActionError || syncError) && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            {syncActionError || syncError}
+          </p>
+        )}
+
+        {syncNotice && !(syncActionError || syncError) && (
+          <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+            {syncNotice}
+          </p>
+        )}
+
+        {pending && !syncing && (
+          <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+            Są lokalne zmiany czekające na wysłanie.
+          </p>
+        )}
+
+        {role === 'local-host' && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={createLeague}
+                disabled={syncing || !apiBase}
+                className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                {syncing ? 'Tworzenie…' : 'Utwórz cloud sync'}
+              </button>
+              <button
+                type="button"
+                onClick={runBackup}
+                className="border border-gray-300 hover:border-green-500 text-gray-700 hover:text-green-700 px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                Pobierz backup JSON
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Pierwszy sync automatycznie pobierze backup JSON przed wysłaniem danych do D1.
+            </p>
+          </div>
+        )}
+
+        {role === 'host' && (
+          <div className="space-y-4">
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-20 text-gray-500">Host ID</span>
+                <code className="flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-800 break-all">
+                  {credential?.combinedId}
+                </code>
+                {credential?.combinedId && (
+                  <button
+                    type="button"
+                    onClick={() => copyText(credential.combinedId)}
+                    className="border border-gray-300 hover:border-green-500 text-gray-600 px-2 py-1 rounded transition-colors"
+                  >
+                    Kopiuj
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-20 text-gray-500">Viewer ID</span>
+                <code className="flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-800 break-all">
+                  {cloudIds?.viewerId || 'niedostępny w tej przeglądarce'}
+                </code>
+                {cloudIds?.viewerId && (
+                  <button
+                    type="button"
+                    onClick={() => copyText(cloudIds.viewerId)}
+                    className="border border-gray-300 hover:border-green-500 text-gray-600 px-2 py-1 rounded transition-colors"
+                  >
+                    Kopiuj
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {(cloudIds?.playerCodes.length ?? 0) > 0 && (
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500">
+                  Player ID do samodzielnego typowania
+                </div>
+                <div className="divide-y divide-gray-100 max-h-52 overflow-y-auto">
+                  {cloudIds?.playerCodes.map((playerCode) => (
+                    <div key={playerCode.playerId} className="flex items-center gap-2 px-3 py-2 text-xs">
+                      <span className="w-28 truncate text-gray-700">
+                        {playerNameById.get(playerCode.playerId) ?? playerCode.playerId}
+                      </span>
+                      <code className="flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1 break-all">
+                        {playerCode.playerIdCode}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => copyText(playerCode.playerIdCode)}
+                        className="border border-gray-300 hover:border-green-500 text-gray-600 px-2 py-1 rounded transition-colors"
+                      >
+                        Kopiuj
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(cloudIds?.playerCodes.length ?? 0) === 0 && (
+              <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+                Brak zapisanych Player ID w tej przeglądarce. Wygeneruj nowe kody i wyślij je
+                graczom. Stare Player ID, jeśli istniały, zostaną zastąpione.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={runSyncNow}
+                disabled={syncing}
+                className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                {syncing ? 'Synchronizacja…' : 'Sync teraz'}
+              </button>
+              <button
+                type="button"
+                onClick={runRegeneratePlayerCodes}
+                disabled={syncing}
+                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                {(cloudIds?.playerCodes.length ?? 0) > 0 ? 'Wygeneruj nowe Player ID' : 'Wygeneruj Player ID'}
+              </button>
+              <button
+                type="button"
+                onClick={runBackup}
+                className="border border-gray-300 hover:border-green-500 text-gray-700 hover:text-green-700 px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                Pobierz backup JSON
+              </button>
+              <button
+                type="button"
+                onClick={leaveCloudSession}
+                className="text-gray-500 hover:text-red-600 border border-gray-300 hover:border-red-300 px-4 py-2 rounded text-sm transition-colors"
+              >
+                Odłącz cloud sync
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(role === 'viewer' || role === 'player') && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={runSyncNow}
+              disabled={syncing}
+              className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+            >
+              {syncing ? 'Odświeżanie…' : 'Odśwież podgląd'}
+            </button>
+            <button
+              type="button"
+              onClick={runBackup}
+              className="border border-gray-300 hover:border-blue-500 text-gray-700 hover:text-blue-700 px-4 py-2 rounded text-sm font-medium transition-colors"
+            >
+              Pobierz cache JSON
+            </button>
+            <button
+              type="button"
+              onClick={leaveCloudSession}
+              className="text-gray-500 hover:text-red-600 border border-gray-300 hover:border-red-300 px-4 py-2 rounded text-sm transition-colors"
+            >
+              {role === 'player' ? 'Wyloguj gracza' : 'Opuść podgląd'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* api-football.com */}
+      {!isViewer && (
       <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
         <div>
           <h2 className="text-sm font-semibold text-gray-700 mb-1">api-football.com — wyniki i kursy bukmacherskie</h2>
@@ -201,6 +508,7 @@ export function Settings() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

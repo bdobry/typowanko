@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Player } from '../db';
 import { nanoid } from '../utils/nanoid';
+import { useSync } from '../sync/syncContextValue';
 
 function PlayerHistory({ player, onClose }: { player: Player; onClose: () => void }) {
   const bets = useLiveQuery(() => db.bets.where('playerId').equals(player.id).toArray(), [player.id]);
@@ -90,6 +91,7 @@ function PlayerHistory({ player, onClose }: { player: Player; onClose: () => voi
 }
 
 export function Players() {
+  const { isViewer, markDirty } = useSync();
   const players = useLiveQuery(() => db.players.orderBy('name').toArray(), []);
   const [name, setName] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
@@ -101,6 +103,7 @@ export function Players() {
     const trimmed = name.trim();
     if (!trimmed) return;
     await db.players.add({ id: nanoid(), name: trimmed, createdAt: Date.now() });
+    markDirty();
     setName('');
   }
 
@@ -108,6 +111,7 @@ export function Players() {
     const trimmed = editName.trim();
     if (!trimmed) return;
     await db.players.update(id, { name: trimmed });
+    markDirty();
     setEditId(null);
   }
 
@@ -118,6 +122,7 @@ export function Players() {
       await db.bets.where('playerId').equals(id).delete();
       await db.scores.where('playerId').equals(id).delete();
     });
+    markDirty();
   }
 
   return (
@@ -128,21 +133,23 @@ export function Players() {
 
       <h1 className="text-2xl font-bold text-gray-900">Gracze</h1>
 
-      <form onSubmit={addPlayer} className="flex gap-2">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Imię gracza…"
-          className="flex-1 bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-green-500"
-        />
-        <button
-          type="submit"
-          className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded font-medium transition-colors"
-        >
-          Dodaj
-        </button>
-      </form>
+      {!isViewer && (
+        <form onSubmit={addPlayer} className="flex gap-2">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Imię gracza…"
+            className="flex-1 bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-green-500"
+          />
+          <button
+            type="submit"
+            className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded font-medium transition-colors"
+          >
+            Dodaj
+          </button>
+        </form>
+      )}
 
       {players?.length === 0 && (
         <p className="text-gray-400 text-center py-8">Brak graczy.</p>
@@ -187,22 +194,26 @@ export function Players() {
               >
                 {p.name}
               </button>
-              <button
-                onClick={() => {
-                  setEditId(p.id);
-                  setEditName(p.name);
-                }}
-                className="text-gray-500 hover:text-gray-900 text-sm px-2 py-1 rounded transition-colors"
-              >
-                Edytuj
-              </button>
-              <button
-                onClick={() => removePlayer(p.id)}
-                className="text-red-500 hover:text-red-400 text-sm px-2 py-1 rounded transition-colors"
-              >
-                Usuń
-              </button>
-            </li>
+                {!isViewer && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setEditId(p.id);
+                        setEditName(p.name);
+                      }}
+                      className="text-gray-500 hover:text-gray-900 text-sm px-2 py-1 rounded transition-colors"
+                    >
+                      Edytuj
+                    </button>
+                    <button
+                      onClick={() => removePlayer(p.id)}
+                      className="text-red-500 hover:text-red-400 text-sm px-2 py-1 rounded transition-colors"
+                    >
+                      Usuń
+                    </button>
+                  </>
+                )}
+              </li>
           )
         )}
       </ul>
