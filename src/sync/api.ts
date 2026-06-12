@@ -15,12 +15,18 @@ export interface PlayerCode {
   playerIdCode: string;
 }
 
+export interface PlayerPresence {
+  playerId: string;
+  lastOnlineAt: number;
+}
+
 export interface CreateLeagueResponse {
   leagueId: string;
   revision: number;
   hostId: string;
   viewerId: string;
   playerCodes: PlayerCode[];
+  playerPresence?: PlayerPresence[];
 }
 
 export interface SnapshotResponse {
@@ -30,6 +36,7 @@ export interface SnapshotResponse {
   updatedAt: number;
   role?: CloudRole;
   playerId?: string;
+  playerPresence?: PlayerPresence[];
   snapshot: TypowankoSnapshot;
 }
 
@@ -39,6 +46,7 @@ export interface PushSnapshotResponse {
   schemaVersion: number;
   updatedAt: number;
   playerCodes?: PlayerCode[];
+  playerPresence?: PlayerPresence[];
 }
 
 export interface PlayerCodesResponse {
@@ -47,6 +55,7 @@ export interface PlayerCodesResponse {
   schemaVersion: number;
   updatedAt: number;
   playerCodes: PlayerCode[];
+  playerPresence?: PlayerPresence[];
 }
 
 export class SyncApiError extends Error {

@@ -1,18 +1,55 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import type { ReactNode } from 'react';
 import { db, type Player } from '../db';
 import { displayTeamName } from '../utils/displayNames';
+import { getLeaderboardData } from '../utils/scoring';
+
+function formatLastOnline(value?: number) {
+  if (!value) return 'brak danych';
+  return new Date(value).toLocaleString('pl-PL', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+}
+
+function StatBox({
+  label,
+  rankLabel,
+  children,
+}: {
+  label: ReactNode;
+  rankLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="relative bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 pr-12">
+      <span className="absolute right-3 top-2 text-[10px] font-semibold text-gray-400">
+        {rankLabel}
+      </span>
+      <div className="text-[10px] uppercase tracking-wider text-gray-400">{label}</div>
+      {children}
+    </div>
+  );
+}
 
 export function PlayerHistory({ player, onClose }: { player: Player; onClose: () => void }) {
+  const currentPlayer = useLiveQuery(() => db.players.get(player.id), [player.id]);
   const bets = useLiveQuery(() => db.bets.where('playerId').equals(player.id).toArray(), [player.id]);
   const fixtures = useLiveQuery(() => db.fixtures.orderBy('date').toArray(), []);
   const scores = useLiveQuery(() => db.scores.where('playerId').equals(player.id).toArray(), [player.id]);
   const odds = useLiveQuery(() => db.odds.toArray(), []);
   const matchOdds = useLiveQuery(() => db.matchOdds.toArray(), []);
+  const leaderboard = useLiveQuery(() => getLeaderboardData(), []);
 
   if (!bets || !fixtures || !scores || !odds || !matchOdds) {
     return <div className="text-gray-400 text-sm">Ładowanie…</div>;
   }
 
+  const displayedPlayer = currentPlayer ?? player;
+  const leaderboardRow = leaderboard?.board.find((row) => row.player.id === player.id);
+  const rankLabel = leaderboard && leaderboardRow
+    ? `${leaderboardRow.currentPosition}/${leaderboard.board.length}`
+    : '–/–';
   const fixtureMap = new Map(fixtures.map((f) => [f.id, f]));
   const scoreMap = new Map(scores.map((s) => [s.fixtureId, s]));
   const oddsMap = new Map(odds.map((odd) => [`${odd.fixtureId}:${odd.homeScore}:${odd.awayScore}`, odd.odd]));
@@ -62,41 +99,47 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
         className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">Historia zakładów — {player.name}</h2>
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-semibold text-gray-900">Historia zakładów — {displayedPlayer.name}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Ostatnio online: {formatLastOnline(displayedPlayer.lastOnlineAt)}
+            </p>
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
         </div>
         <div className="p-4">
           <div className="grid grid-cols-2 gap-2 mb-4">
-            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wider text-gray-400">Śr. pkt/mecz</div>
+            <StatBox label="Śr. pkt/mecz" rankLabel={rankLabel}>
               <div className="text-sm font-bold text-gray-900">
                 {avgPoints == null ? '–' : avgPoints.toFixed(2)}
               </div>
-            </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wider text-gray-400">Skuteczność</div>
+            </StatBox>
+            <StatBox label="Skuteczność" rankLabel={rankLabel}>
               <div className="text-sm font-bold text-gray-900">
                 {effectiveness == null ? '–' : `${effectiveness.toFixed(0)}%`}
               </div>
-            </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-400">
-                Ryzyko
-                <span
-                  title="Średni kurs wszystkich obstawień z dostępnym kursem: osobno dla dokładnego wyniku i osobno dla W/D/L."
-                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-gray-300 text-[9px] text-gray-500"
-                >
-                  ?
+            </StatBox>
+            <StatBox
+              label={
+                <span className="inline-flex items-center gap-1">
+                  Średnie ryzyko
+                  <span
+                    title="Średni kurs wszystkich obstawień z dostępnym kursem: osobno dla dokładnego wyniku i osobno dla W/D/L."
+                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-gray-300 text-[9px] text-gray-500"
+                  >
+                    ?
+                  </span>
                 </span>
+              }
+              rankLabel={rankLabel}
+            >
+              <div className="mt-1 flex items-center gap-4 text-xs font-bold text-gray-900">
+                <span>Dokł. {exactRisk == null ? '–' : exactRisk.toFixed(2)}</span>
+                <span>W/D/L {outcomeRisk == null ? '–' : outcomeRisk.toFixed(2)}</span>
               </div>
-              <div className="text-xs font-bold text-gray-900 leading-snug">
-                <div>Dokł. {exactRisk == null ? '–' : exactRisk.toFixed(2)}</div>
-                <div>W/D/L {outcomeRisk == null ? '–' : outcomeRisk.toFixed(2)}</div>
-              </div>
-            </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wider text-gray-400">Najlepszy strzał</div>
+            </StatBox>
+            <StatBox label="Najlepszy strzał" rankLabel={rankLabel}>
               <div className="text-sm font-bold text-gray-900">
                 {bestScore ? `+${bestScore.points.toFixed(2)}` : '–'}
               </div>
@@ -110,7 +153,7 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
                   {bestScore.pointType === 'outcome' ? 'W/D/L' : 'dokł.'}
                 </div>
               )}
-            </div>
+            </StatBox>
           </div>
 
           {sortedBets.length === 0 ? (

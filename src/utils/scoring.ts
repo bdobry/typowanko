@@ -134,12 +134,32 @@ function fixtureSortKey(fixture: Fixture) {
   return `${fixture.date} ${fixture.utcTime ?? '99:99'} ${String(fixture.num ?? fixture.id).padStart(4, '0')}`;
 }
 
-function sortRows(rows: Omit<LeaderboardRow, 'currentPosition' | 'previousPosition' | 'positionDelta'>[]) {
+type LeaderboardBaseRow = Omit<LeaderboardRow, 'currentPosition' | 'previousPosition' | 'positionDelta'>;
+type LeaderboardPositionedRow = Omit<LeaderboardRow, 'previousPosition' | 'positionDelta'>;
+
+function sortRows(rows: LeaderboardBaseRow[]) {
   return [...rows].sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total;
     if (b.exactHits !== a.exactHits) return b.exactHits - a.exactHits;
     if (b.outcomeHits !== a.outcomeHits) return b.outcomeHits - a.outcomeHits;
     return a.player.name.localeCompare(b.player.name, 'pl-PL');
+  });
+}
+
+function assignPositions(rows: LeaderboardBaseRow[]): LeaderboardPositionedRow[] {
+  let currentPosition = 0;
+  let previousTotal: number | null = null;
+
+  return rows.map((row, index) => {
+    if (previousTotal == null || row.total !== previousTotal) {
+      currentPosition = index + 1;
+      previousTotal = row.total;
+    }
+
+    return {
+      ...row,
+      currentPosition,
+    };
   });
 }
 
@@ -214,13 +234,13 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     ? scores.filter((score) => score.fixtureId !== lastFixture.id)
     : scores;
   const recentFixtures = lockedFixtures.slice(-5);
-  const previousRows = buildRows(players, previousScores, bets, new Map(), recentFixtures);
+  const previousRows = assignPositions(buildRows(players, previousScores, bets, new Map(), recentFixtures));
   const previousPositionByPlayerId = new Map(
-    previousRows.map((row, index) => [row.player.id, index + 1]),
+    previousRows.map((row) => [row.player.id, row.currentPosition]),
   );
 
-  const board = buildRows(players, scores, bets, lastMatchPointsByPlayerId, recentFixtures).map((row, index) => {
-    const currentPosition = index + 1;
+  const board = assignPositions(buildRows(players, scores, bets, lastMatchPointsByPlayerId, recentFixtures)).map((row) => {
+    const { currentPosition } = row;
     const previousPosition = previousPositionByPlayerId.get(row.player.id) ?? currentPosition;
     return {
       ...row,

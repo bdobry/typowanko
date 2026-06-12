@@ -61,7 +61,7 @@ type RawCredential = {
 type SnapshotRecord = {
   schemaVersion?: number;
   exportedAt?: number;
-  players: Array<{ id?: unknown; name?: unknown }>;
+  players: Array<{ id?: unknown; name?: unknown; lastOnlineAt?: unknown }>;
   fixtures: Array<{ id?: unknown; status?: unknown }>;
   odds: unknown[];
   bets: Array<{
@@ -153,6 +153,51 @@ function playerIdsFromSnapshot(snapshot: SnapshotRecord) {
   return snapshot.players
     .map((player) => (typeof player.id === 'string' ? player.id : null))
     .filter((id): id is string => Boolean(id));
+}
+
+function timestampValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function markPlayerOnline(snapshot: SnapshotRecord, playerId: string, now: number) {
+  const player = snapshot.players.find((entry) => entry.id === playerId);
+  if (!player) return false;
+  player.lastOnlineAt = Math.max(timestampValue(player.lastOnlineAt), now);
+  return true;
+}
+
+function mergePlayerPresence(snapshot: SnapshotRecord, cloudSnapshot: SnapshotRecord) {
+  const cloudPresence = new Map(
+    cloudSnapshot.players
+      .map((player) =>
+        typeof player.id === 'string'
+          ? [player.id, timestampValue(player.lastOnlineAt)] as const
+          : null,
+      )
+      .filter((entry): entry is readonly [string, number] => entry != null),
+  );
+
+  for (const player of snapshot.players) {
+    if (typeof player.id !== 'string') continue;
+    const lastOnlineAt = Math.max(
+      timestampValue(player.lastOnlineAt),
+      cloudPresence.get(player.id) ?? 0,
+    );
+    if (lastOnlineAt > 0) {
+      player.lastOnlineAt = lastOnlineAt;
+    }
+  }
+}
+
+function playerPresenceFromSnapshot(snapshot: SnapshotRecord) {
+  return snapshot.players
+    .map((player) => {
+      const lastOnlineAt = timestampValue(player.lastOnlineAt);
+      return typeof player.id === 'string' && lastOnlineAt > 0
+        ? { playerId: player.id, lastOnlineAt }
+        : null;
+    })
+    .filter((entry): entry is { playerId: string; lastOnlineAt: number } => entry != null);
 }
 
 async function createOrReactivateMissingPlayerCodes(
@@ -351,6 +396,7 @@ async function createLeague(request: Request, env: Env) {
     revision: 1,
     hostId: buildCombinedId('H', leagueId, hostCode),
     viewerId: buildCombinedId('V', leagueId, viewerCode),
+    playerPresence: playerPresenceFromSnapshot(body.snapshot),
     playerCodes: playerCodes.map((playerCode) => ({
       playerId: playerCode.playerId,
       playerIdCode: buildCombinedId('P', leagueId, playerCode.playerCode),
@@ -365,14 +411,31 @@ async function fetchSnapshot(request: Request, env: Env, leagueId: string) {
   const auth = await authenticateCredential(env, league, request);
   if (!auth) return errorResponse(401, 'Invalid league ID.');
 
+  const snapshot = JSON.parse(league.snapshot_json) as unknown;
+  if (!validateSnapshot(snapshot)) {
+    return errorResponse(500, 'Stored league snapshot is invalid.');
+  }
+
+  let updatedAt = league.updated_at;
+  if (auth.role === 'player') {
+    const now = Date.now();
+    if (markPlayerOnline(snapshot, auth.playerId, now)) {
+      await env.DB.prepare(
+        'UPDATE leagues SET snapshot_json = ?, updated_at = ? WHERE id = ?',
+      ).bind(JSON.stringify(snapshot), now, league.id).run();
+      updatedAt = now;
+    }
+  }
+
   return jsonResponse({
     leagueId: league.id,
     revision: league.revision,
     schemaVersion: league.schema_version,
-    updatedAt: league.updated_at,
+    updatedAt,
     role: auth.role,
     playerId: auth.role === 'player' ? auth.playerId : undefined,
-    snapshot: JSON.parse(league.snapshot_json),
+    playerPresence: playerPresenceFromSnapshot(snapshot),
+    snapshot,
   });
 }
 
@@ -394,6 +457,12 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
     }, { status: 409 });
   }
 
+  const snapshot = body.snapshot;
+  const cloudSnapshot = JSON.parse(league.snapshot_json) as unknown;
+  if (validateSnapshot(cloudSnapshot)) {
+    mergePlayerPresence(snapshot, cloudSnapshot);
+  }
+
   const nextRevision = league.revision + 1;
   const now = Date.now();
   const schemaVersion = Number.isInteger(body.schemaVersion)
@@ -403,7 +472,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
     env,
     leagueId,
     league.revision,
-    body.snapshot,
+    snapshot,
     schemaVersion,
     now,
   );
@@ -417,7 +486,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
   const playerCodes = await createOrReactivateMissingPlayerCodes(
     env,
     leagueId,
-    playerIdsFromSnapshot(body.snapshot),
+    playerIdsFromSnapshot(snapshot),
     now,
   );
 
@@ -426,6 +495,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
     revision: nextRevision,
     schemaVersion,
     updatedAt: now,
+    playerPresence: playerPresenceFromSnapshot(snapshot),
     playerCodes: playerCodes.map((playerCode) => ({
       playerId: playerCode.playerId,
       playerIdCode: buildCombinedId('P', leagueId, playerCode.playerCode),
@@ -513,6 +583,7 @@ async function updatePlayerBetFromBody(
   }
 
   const now = Date.now();
+  markPlayerOnline(snapshot, auth.playerId, now);
   const existingIndex = snapshot.bets.findIndex(
     (bet) => bet.playerId === auth.playerId && bet.fixtureId === body.fixtureId,
   );
@@ -560,6 +631,7 @@ async function updatePlayerBetFromBody(
     updatedAt: now,
     role: 'player',
     playerId: auth.playerId,
+    playerPresence: playerPresenceFromSnapshot(snapshot),
     snapshot,
   });
 }
@@ -589,6 +661,7 @@ async function rotatePlayerCodes(request: Request, env: Env, leagueId: string) {
     revision: league.revision,
     schemaVersion: league.schema_version,
     updatedAt: now,
+    playerPresence: playerPresenceFromSnapshot(snapshot),
     playerCodes: playerCodes.map((playerCode) => ({
       playerId: playerCode.playerId,
       playerIdCode: buildCombinedId('P', leagueId, playerCode.playerCode),

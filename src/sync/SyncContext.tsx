@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { getViewerDatabaseName, setActiveDatabase, setHostDatabase } from '../db';
+import { db, getViewerDatabaseName, setActiveDatabase, setHostDatabase } from '../db';
 import { seedFixtures } from '../db/seed';
 import {
   createLeague,
@@ -19,6 +19,7 @@ import {
   submitPlayerBet as submitPlayerBetRequest,
   type CloudCredential,
   type PlayerCode,
+  type PlayerPresence,
 } from './api';
 import { mergeHostSnapshotWithCloud } from './merge';
 import {
@@ -101,6 +102,18 @@ function mergePlayerCodes(existing: CloudIds | null, newCodes: PlayerCode[], hos
 function withPlayerId(credential: CloudCredential, playerId?: string) {
   if (!playerId || credential.playerId === playerId) return credential;
   return { ...credential, playerId };
+}
+
+async function applyPlayerPresence(playerPresence?: PlayerPresence[]) {
+  if (!playerPresence || playerPresence.length === 0) return;
+
+  await db.transaction('rw', db.players, async () => {
+    for (const presence of playerPresence) {
+      const player = await db.players.get(presence.playerId);
+      if (!player || (player.lastOnlineAt ?? 0) >= presence.lastOnlineAt) continue;
+      await db.players.update(presence.playerId, { lastOnlineAt: presence.lastOnlineAt });
+    }
+  });
 }
 
 export function SyncProvider({ children }: { children: ReactNode }) {
@@ -206,6 +219,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setHostDatabase();
       }
       await importSnapshot(response.snapshot);
+      await applyPlayerPresence(response.playerPresence);
       const credentialWithPlayerId = {
         ...parsed,
         playerId: response.playerId ?? parsed.playerId,
@@ -242,6 +256,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const snapshot = await exportSnapshot();
       downloadSnapshot(snapshot, 'pre-sync-backup');
       const response = await createLeague(snapshot);
+      await applyPlayerPresence(response.playerPresence);
       const hostCredential = parseCombinedId(response.hostId);
       if (!hostCredential || hostCredential.role !== 'host') {
         throw new Error('Worker zwrócił niepoprawny Host ID.');
@@ -282,6 +297,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         const response = await fetchLeagueSnapshot(credential);
         setActiveDatabase(getViewerDatabaseName(credential.leagueId));
         await importSnapshot(response.snapshot);
+        await applyPlayerPresence(response.playerPresence);
         const credentialWithPlayerId = withPlayerId(credential, response.playerId);
         const syncedAt = Date.now();
         if (credentialWithPlayerId !== credential) {
@@ -337,6 +353,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           );
         }
         const syncedAt = Date.now();
+        await applyPlayerPresence(response.playerPresence);
         setRevision(response.revision);
         setLastSyncAt(syncedAt);
         setPending(false);
@@ -385,6 +402,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const response = await submitPlayerBetRequest(credential, fixtureId, homeScore, awayScore);
       setActiveDatabase(getViewerDatabaseName(credential.leagueId));
       await importSnapshot(response.snapshot);
+      await applyPlayerPresence(response.playerPresence);
       const credentialWithPlayerId = withPlayerId(credential, response.playerId);
       const syncedAt = Date.now();
       if (credentialWithPlayerId !== credential) {
@@ -415,6 +433,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setNotice(null);
     try {
       const response = await regeneratePlayerCodesRequest(credential);
+      await applyPlayerPresence(response.playerPresence);
       const nextCloudIds: CloudIds = {
         hostId: cloudIds?.hostId ?? credential.combinedId,
         viewerId: cloudIds?.viewerId ?? '',

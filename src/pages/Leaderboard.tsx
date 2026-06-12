@@ -77,7 +77,7 @@ function LastMatchPoints({ value, hasLastFixture }: { value: number; hasLastFixt
   }
 
   return (
-    <span className={`text-xs font-normal ml-1 ${value > 0 ? '' : 'text-gray-400'}`}>
+    <span className={`text-xs font-normal ml-1 ${value > 0 ? 'text-green-600 font-semibold' : 'text-gray-400'}`}>
       ({value > 0 ? `+${formatPoints(value)}` : '+0.00'})
     </span>
   );
@@ -372,26 +372,30 @@ export function Leaderboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {data.board.map((row, idx) => {
+                {data.board.map((row) => {
                   const rankClass =
-                    idx === 0
+                    row.currentPosition === 1
                       ? 'bg-yellow-100 text-yellow-800 ring-yellow-200'
-                      : idx === 1
+                      : row.currentPosition === 2
                       ? 'bg-gray-100 text-gray-700 ring-gray-200'
-                      : idx === 2
+                      : row.currentPosition === 3
                       ? 'bg-orange-100 text-orange-800 ring-orange-200'
                       : 'bg-white text-gray-500 ring-gray-200';
+                  const rankLabel =
+                    row.currentPosition <= MEDALS.length
+                      ? MEDALS[row.currentPosition - 1]
+                      : row.currentPosition;
                   return (
                     <tr
                       key={row.player.id}
                       className={`transition-colors hover:bg-green-50/40 ${
-                        idx === 0 ? 'bg-yellow-50/60' : 'bg-white'
+                        row.currentPosition === 1 ? 'bg-yellow-50/60' : 'bg-white'
                       }`}
                     >
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center gap-1.5">
                           <span className={`inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm font-bold ring-1 ${rankClass}`}>
-                            {idx < 3 ? MEDALS[idx] : row.currentPosition}
+                            {rankLabel}
                           </span>
                           <RankChangeIcon delta={row.positionDelta} hasLastFixture={data.lastFixture != null} />
                         </span>
@@ -406,7 +410,7 @@ export function Leaderboard() {
                         </button>
                         {row.player.id === playerId && (
                           <span className="ml-2 text-[10px] text-blue-600 bg-blue-100 rounded-full px-2 py-0.5">
-                            (ty)
+                            ty
                           </span>
                         )}
                       </td>
@@ -416,12 +420,12 @@ export function Leaderboard() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className="inline-flex min-w-10 justify-center rounded-full bg-blue-50 px-2 py-1 font-mono text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
+                        <span className="inline-flex min-w-10 justify-center rounded-full bg-yellow-50 px-2 py-1 font-mono text-xs font-semibold text-yellow-700 ring-1 ring-yellow-100">
                           {row.outcomeHits}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="font-bold text-green-700 text-base">
+                        <div className="font-bold text-gray-900 text-base">
                           {formatPoints(row.total)}
                           <span className="text-xs font-normal text-gray-400 ml-1">pkt</span>
                           <LastMatchPoints value={row.lastMatchPoints} hasLastFixture={data.lastFixture != null} />
@@ -458,7 +462,7 @@ export function Leaderboard() {
                   <span className="font-medium text-gray-900">{event.player.name}</span>
                   {event.player.id === playerId && (
                     <span className="ml-2 text-[10px] text-blue-600 bg-blue-100 rounded-full px-2 py-0.5">
-                      (ty)
+                      ty
                     </span>
                   )}
                   <span className="text-gray-500"> · {scoreTypeLabel(event)} · </span>
