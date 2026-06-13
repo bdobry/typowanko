@@ -389,9 +389,9 @@ export function Leaderboard() {
                 <tr className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
                   <th className="px-4 py-2.5 text-left w-20">Miejsce</th>
                   <th className="px-4 py-2.5 text-left">Gracz</th>
+                  <th className="px-4 py-2.5 text-left">Punkty</th>
                   <th className="px-4 py-2.5 text-center">Dokładne</th>
                   <th className="px-4 py-2.5 text-center">W/D/L</th>
-                  <th className="px-4 py-2.5 text-right">Punkty</th>
                   <th className="px-4 py-2.5 text-center">Forma</th>
                 </tr>
               </thead>
@@ -438,6 +438,13 @@ export function Leaderboard() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-left whitespace-nowrap">
+                        <div className="font-bold text-gray-900 text-base">
+                          {formatPoints(row.total)}
+                          <span className="text-xs font-normal text-gray-400 ml-1">pkt</span>
+                          <LastMatchPoints value={row.lastMatchPoints} hasLastFixture={data.lastFixture != null} />
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <span className="inline-flex min-w-10 justify-center rounded-full bg-green-50 px-2 py-1 font-mono text-xs font-semibold text-green-700 ring-1 ring-green-100">
                           {row.exactHits}
@@ -447,13 +454,6 @@ export function Leaderboard() {
                         <span className="inline-flex min-w-10 justify-center rounded-full bg-yellow-50 px-2 py-1 font-mono text-xs font-semibold text-yellow-700 ring-1 ring-yellow-100">
                           {row.outcomeHits}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="font-bold text-gray-900 text-base">
-                          {formatPoints(row.total)}
-                          <span className="text-xs font-normal text-gray-400 ml-1">pkt</span>
-                          <LastMatchPoints value={row.lastMatchPoints} hasLastFixture={data.lastFixture != null} />
-                        </div>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <FormStreak row={row} />

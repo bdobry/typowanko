@@ -7,7 +7,7 @@ const navItems = [
   { to: '/fixtures', label: '⚽ Mecze' },
   { to: '/leaderboard', label: '🏆 Tabela' },
   { to: '/players', label: '👥 Gracze' },
-  { to: '/settings', label: '⚙️ Ustawienia' },
+  { to: '/settings', label: '⚙️ Opcje' },
 ];
 
 export function Layout() {
@@ -29,8 +29,8 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-4">
-          <span className="font-bold text-green-600 text-lg tracking-tight">Typowanko 🇺🇸🇨🇦🇲🇽</span>
+        <div className="max-w-4xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3 sm:flex-nowrap sm:gap-4">
+          <span className="shrink-0 font-bold text-green-600 text-lg tracking-tight">Typowanko</span>
           <span
             className={`hidden sm:inline-flex text-[11px] rounded-full px-2 py-1 border ${
               error
@@ -45,13 +45,13 @@ export function Layout() {
           >
             {syncLabel}
           </span>
-          <nav className="flex gap-1 ml-auto">
+          <nav className="flex w-full gap-1 overflow-x-auto sm:ml-auto sm:w-auto sm:overflow-visible">
             {navItems.map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}
                 className={({ isActive }) =>
-                  `px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                  `shrink-0 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-green-700 text-white'
                       : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'

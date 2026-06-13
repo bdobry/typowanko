@@ -5,12 +5,8 @@ import { recalcFixture } from '../utils/scoring';
 import { fetchAllOdds, getApiFootballKey } from '../utils/oddsApi';
 import { fetchMatchResult } from '../utils/footballDataApi';
 import { useSync } from '../sync/syncContextValue';
-import { displayStageName, displayTeamName, toStoredTeamName } from '../utils/displayNames';
-import {
-  formatFixtureDateInWarsaw,
-  formatFixtureTimeInWarsaw,
-  hasFixtureStarted,
-} from '../utils/fixtureTime';
+import { displayTeamName, toStoredTeamName } from '../utils/displayNames';
+import { hasFixtureStarted } from '../utils/fixtureTime';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
 
@@ -159,6 +155,16 @@ export function FixturePanel({ id }: { id: string }) {
 
   const betsMap = new Map((bets ?? []).map((b) => [b.playerId, b]));
   const scoresMap = new Map((scores ?? []).map((s) => [s.playerId, s]));
+  const playerNameById = new Map((players ?? []).map((p) => [p.id, p.name]));
+  const betScoreMap = new Map<string, { names: string[]; hasCurrentPlayer: boolean }>();
+  for (const bet of bets ?? []) {
+    const key = `${bet.homeScore}:${bet.awayScore}`;
+    const entry = betScoreMap.get(key) ?? { names: [], hasCurrentPlayer: false };
+    const name = playerNameById.get(bet.playerId) ?? 'Gracz';
+    entry.names.push(bet.playerId === playerId ? `${name} (Ty)` : name);
+    entry.hasCurrentPlayer = entry.hasCurrentPlayer || bet.playerId === playerId;
+    betScoreMap.set(key, entry);
+  }
 
   async function saveBet(e: React.FormEvent) {
     e.preventDefault();
@@ -399,76 +405,92 @@ export function FixturePanel({ id }: { id: string }) {
   const isLocked = fixture.status === 'locked';
   const hasStarted = hasFixtureStarted(fixture, now);
   const betsClosed = isLocked || hasStarted;
+  const resultOutcome =
+    isLocked && fixture.homeScore != null && fixture.awayScore != null
+      ? fixture.homeScore > fixture.awayScore
+        ? 'home'
+        : fixture.homeScore < fixture.awayScore
+        ? 'away'
+        : 'draw'
+      : null;
+
+  function matchOddBoxClass(outcome: 'home' | 'draw' | 'away') {
+    return `rounded border px-3 py-1.5 text-center ${
+      resultOutcome === outcome
+        ? 'bg-green-100 border-green-200 ring-1 ring-green-200'
+        : 'bg-gray-50 border-gray-200'
+    }`;
+  }
+
+  function matchOddLabelClass(outcome: 'home' | 'draw' | 'away') {
+    return `block text-xs ${resultOutcome === outcome ? 'text-green-700' : 'text-gray-400'}`;
+  }
+
+  function matchOddValueClass(outcome: 'home' | 'draw' | 'away') {
+    return `font-bold ${resultOutcome === outcome ? 'text-green-800' : 'text-gray-700'}`;
+  }
 
   return (
     <div className="space-y-4 pt-2">
-      {/* Header card */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-gray-400">{displayStageName(fixture.group ?? fixture.round)}</span>
-          {isLocked ? (
-            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Zakończony</span>
-          ) : (
-            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Nadchodzący</span>
-          )}
-        </div>
-
-        {editTeams && !isViewer ? (
-          <div className="flex items-center gap-2 mt-2">
-            <input
-              value={editHome}
-              onChange={(e) => setEditHome(e.target.value)}
-              placeholder={displayTeamName(fixture.homeTeam)}
-              className="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1 text-gray-900 focus:outline-none text-sm"
-            />
-            <span className="text-gray-400">vs</span>
-            <input
-              value={editAway}
-              onChange={(e) => setEditAway(e.target.value)}
-              placeholder={displayTeamName(fixture.awayTeam)}
-              className="flex-1 bg-gray-50 border border-gray-300 rounded px-2 py-1 text-gray-900 focus:outline-none text-sm"
-            />
-            <button onClick={saveTeams} className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded transition-colors">Zapisz</button>
-            <button onClick={() => setEditTeams(false)} className="text-gray-400 hover:text-gray-900 text-xs px-2 py-1.5 rounded transition-colors">×</button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-4 mt-2">
-            <span className="text-xl font-bold text-gray-900 flex-1">{displayTeamName(fixture.homeTeam)}</span>
-            {isLocked ? (
-              <span className="text-3xl font-bold text-green-600 font-mono">
-                {fixture.homeScore}:{fixture.awayScore}
-              </span>
-            ) : (
-              <span className="text-gray-400 font-mono text-xl">vs</span>
-            )}
-            <span className="text-xl font-bold text-gray-900 flex-1 text-right">{displayTeamName(fixture.awayTeam)}</span>
-            {!isLocked && !isViewer && (
-              <button
-                onClick={() => { setEditHome(displayTeamName(fixture.homeTeam)); setEditAway(displayTeamName(fixture.awayTeam)); setEditTeams(true); }}
-                className="text-gray-400 hover:text-gray-600 text-xs ml-2 transition-colors"
-                title="Edytuj drużyny (faza pucharowa)"
-              >
-                ✏️
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className="text-xs text-gray-400 mt-2">
-          {formatFixtureDateInWarsaw(fixture, {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-          })}
-          {fixture.utcTime && ` · ${formatFixtureTimeInWarsaw(fixture)} Warszawa`}
-          {fixture.venue && ` · ${fixture.venue}`}
-        </div>
-      </div>
-
       {/* Lock / Unlock */}
       {!isLocked && !isViewer && (
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <h2 className="text-sm font-semibold text-gray-500 mb-3">Ustaw wynik i zablokuj</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-gray-500">Ustaw wynik i zablokuj</h2>
+            <button
+              type="button"
+              onClick={() => {
+                setEditHome(displayTeamName(fixture.homeTeam));
+                setEditAway(displayTeamName(fixture.awayTeam));
+                setEditTeams((value) => !value);
+              }}
+              className="text-xs text-gray-500 hover:text-gray-900 px-2 py-1 rounded transition-colors"
+            >
+              {editTeams ? 'Ukryj edycję drużyn' : 'Edytuj drużyny'}
+            </button>
+          </div>
+
+          {editTeams && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveTeams();
+              }}
+              className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3"
+            >
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
+                <input
+                  value={editHome}
+                  onChange={(e) => setEditHome(e.target.value)}
+                  placeholder={displayTeamName(fixture.homeTeam)}
+                  className="min-w-0 bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-900 focus:outline-none focus:border-green-500 text-sm"
+                />
+                <span className="hidden text-gray-400 sm:inline">vs</span>
+                <input
+                  value={editAway}
+                  onChange={(e) => setEditAway(e.target.value)}
+                  placeholder={displayTeamName(fixture.awayTeam)}
+                  className="min-w-0 bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-900 focus:outline-none focus:border-green-500 text-sm"
+                />
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditTeams(false)}
+                  className="text-xs text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="submit"
+                  className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded transition-colors"
+                >
+                  Zapisz drużyny
+                </button>
+              </div>
+            </form>
+          )}
+
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-sm text-gray-700 w-24 truncate text-right">{displayTeamName(fixture.homeTeam)}</span>
             <ScoreSelect value={resultH} onChange={setResultH} />
@@ -576,14 +598,19 @@ export function FixturePanel({ id }: { id: string }) {
             {players?.map((p) => {
               const bet = betsMap.get(p.id);
               const score = scoresMap.get(p.id);
+              const betOdd = bet ? oddsMap.get(`${bet.homeScore}:${bet.awayScore}`) : undefined;
+              const displayedOdd = score ? undefined : betOdd;
+              const scoreType = score?.pointType === 'outcome' ? 'outcome' : score ? 'exact' : null;
               return (
                 <div
                   key={p.id}
                   className={`flex items-center gap-3 px-3 py-2 rounded text-sm ${
-                    p.id === playerId
-                      ? 'bg-blue-50 border border-blue-200'
-                      : score
+                    scoreType === 'exact'
                       ? 'bg-green-50 border border-green-200'
+                      : scoreType === 'outcome'
+                      ? 'bg-yellow-50 border border-yellow-200'
+                      : p.id === playerId
+                      ? 'bg-blue-50 border border-blue-200'
                       : 'bg-gray-50'
                   }`}
                 >
@@ -596,18 +623,38 @@ export function FixturePanel({ id }: { id: string }) {
                     )}
                   </span>
                   {bet ? (
-                    <span className="font-mono text-gray-700">
-                      {bet.homeScore}:{bet.awayScore}
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-mono text-gray-700">
+                        {bet.homeScore}:{bet.awayScore}
+                      </span>
+                      {displayedOdd != null && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            score ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                          }`}
+                        >
+                          kurs {displayedOdd.toFixed(2)}
+                          {score?.pointType === 'outcome' && ' 1X2'}
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className="text-gray-400 italic text-xs">brak zakładu</span>
                   )}
                   {score && (
-                    <span className="text-green-600 font-bold">
-                      +{score.points.toFixed(2)} pkt
-                      {score.pointType === 'outcome' && (
-                        <span className="text-green-500 font-normal text-xs ml-1">(typ)</span>
-                      )}
+                    <span
+                      className={`font-bold ${
+                        scoreType === 'outcome' ? 'text-yellow-700' : 'text-green-600'
+                      }`}
+                    >
+                      +{score.points.toFixed(2)} pkt{' '}
+                      <span
+                        className={`font-normal text-xs ${
+                          scoreType === 'outcome' ? 'text-yellow-600' : 'text-green-500'
+                        }`}
+                      >
+                        ({scoreType === 'outcome' ? '1x2' : 'wynik'})
+                      </span>
                     </span>
                   )}
                   {isLocked && bet && !score && (
@@ -732,14 +779,30 @@ export function FixturePanel({ id }: { id: string }) {
                       const key = `${h}:${a}`;
                       const odd = oddsMap.get(key);
                       const isResult = isLocked && fixture.homeScore === h && fixture.awayScore === a;
+                      const betEntry = betScoreMap.get(key);
+                      const isBet = betEntry != null && betEntry.names.length > 0;
+                      const isCurrentPlayerBet = betEntry?.hasCurrentPlayer ?? false;
                       return (
                         <td
                           key={h}
-                          className={`px-2 py-0.5 font-mono text-center rounded ${
-                            isResult ? 'bg-green-100 text-green-700 font-bold' : odd ? 'text-gray-700' : 'text-gray-300'
-                          }`}
+                          title={isBet ? `Obstawione przez: ${betEntry.names.join(', ')}` : undefined}
+                          className="px-1 py-0.5 text-center"
                         >
-                          {odd ? odd.toFixed(2) : '–'}
+                          <span
+                            className={`inline-flex w-14 justify-center rounded px-1.5 py-0.5 font-mono ${
+                              isResult
+                                ? 'bg-green-100 text-green-700 font-bold'
+                                : isCurrentPlayerBet
+                                ? 'bg-gray-300 text-gray-900 font-bold ring-1 ring-gray-400'
+                                : isBet
+                                ? 'bg-gray-50 text-gray-500 font-semibold ring-1 ring-gray-100'
+                                : odd
+                                ? 'text-gray-700'
+                                : 'text-gray-300'
+                            }`}
+                          >
+                            {odd ? odd.toFixed(2) : '–'}
+                          </span>
                         </td>
                       );
                     })}
@@ -756,17 +819,17 @@ export function FixturePanel({ id }: { id: string }) {
           <div className="mt-3 pt-3 border-t border-gray-100">
             <p className="text-xs text-gray-400 mb-2">Kurs 1X2 (typ wyniku)</p>
             <div className="flex gap-3 text-xs font-mono">
-              <span className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-center">
-                <span className="text-gray-400 block text-xs">1 (gosp.)</span>
-                <span className="text-gray-700 font-bold">{matchOdd.homeOdd.toFixed(2)}</span>
+              <span className={matchOddBoxClass('home')}>
+                <span className={matchOddLabelClass('home')}>1 (gosp.)</span>
+                <span className={matchOddValueClass('home')}>{matchOdd.homeOdd.toFixed(2)}</span>
               </span>
-              <span className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-center">
-                <span className="text-gray-400 block text-xs">X (remis)</span>
-                <span className="text-gray-700 font-bold">{matchOdd.drawOdd.toFixed(2)}</span>
+              <span className={matchOddBoxClass('draw')}>
+                <span className={matchOddLabelClass('draw')}>X (remis)</span>
+                <span className={matchOddValueClass('draw')}>{matchOdd.drawOdd.toFixed(2)}</span>
               </span>
-              <span className="bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-center">
-                <span className="text-gray-400 block text-xs">2 (gość)</span>
-                <span className="text-gray-700 font-bold">{matchOdd.awayOdd.toFixed(2)}</span>
+              <span className={matchOddBoxClass('away')}>
+                <span className={matchOddLabelClass('away')}>2 (gość)</span>
+                <span className={matchOddValueClass('away')}>{matchOdd.awayOdd.toFixed(2)}</span>
               </span>
             </div>
           </div>

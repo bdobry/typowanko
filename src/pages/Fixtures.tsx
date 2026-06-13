@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { FixturePanel } from '../components/FixturePanel';
@@ -57,6 +57,7 @@ export function Fixtures() {
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'locked'>('all');
   const [group, setGroup] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const fixtureRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const now = useCurrentTime();
 
   // Build per-fixture lookup sets
@@ -103,15 +104,28 @@ export function Fixtures() {
     setExpandedId((prev) => (prev === id ? null : id));
   }
 
+  useEffect(() => {
+    if (!expandedId) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      fixtureRefs.current[expandedId]?.scrollIntoView({
+        block: 'start',
+        behavior: 'smooth',
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [expandedId]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-2xl font-bold text-gray-900 flex-1">Mecze</h1>
+        <h1 className="w-full text-2xl font-bold text-gray-900 sm:w-auto sm:flex-1">Mecze</h1>
 
         <select
           value={group}
           onChange={(e) => setGroup(e.target.value)}
-          className="bg-white border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:border-green-500"
+          className="min-w-0 flex-1 bg-white border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:border-green-500 sm:flex-none sm:min-w-48"
         >
           <option value="all">Wszystkie rundy</option>
           {ROUNDS.map((r) => (
@@ -119,19 +133,21 @@ export function Fixtures() {
           ))}
         </select>
 
-        {(['all', 'upcoming', 'locked'] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded text-sm transition-colors ${
-              filter === f
-                ? 'bg-green-700 text-white'
-                : 'bg-gray-100 text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            {f === 'all' ? 'Wszystkie' : f === 'upcoming' ? 'Nadchodzące' : 'Zakończone'}
-          </button>
-        ))}
+        <div className="flex w-full gap-2 overflow-x-auto sm:w-auto sm:overflow-visible">
+          {(['all', 'upcoming', 'locked'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`shrink-0 px-3 py-1.5 rounded text-sm transition-colors ${
+                filter === f
+                  ? 'bg-green-700 text-white'
+                  : 'bg-gray-100 text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              {f === 'all' ? 'Wszystkie' : f === 'upcoming' ? 'Nadchodzące' : 'Zakończone'}
+            </button>
+          ))}
+        </div>
       </div>
 
       {Object.keys(byDate).length === 0 && (
@@ -151,56 +167,67 @@ export function Fixtures() {
               const hasFetchedOdds = fixturesWithFetchedOdds.has(f.id);
               const hasStarted = hasFixtureStarted(f, now);
               return (
-                <div key={f.id} className="rounded-lg overflow-hidden border border-gray-200 hover:border-gray-300 transition-colors">
+                <div
+                  key={f.id}
+                  ref={(node) => {
+                    fixtureRefs.current[f.id] = node;
+                  }}
+                  className="scroll-mt-28 rounded-lg overflow-hidden border border-gray-200 hover:border-gray-300 transition-colors"
+                >
                   <button
                     onClick={() => toggleExpand(f.id)}
-                    className="w-full flex items-center gap-3 bg-white px-4 py-3 text-left group"
+                    className="w-full bg-white px-4 py-3 text-left group sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end sm:gap-3"
                   >
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 sm:flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-gray-400">{displayStageName(f.group ?? f.round)}</span>
                         {f.utcTime && (
                           <span className="text-xs text-gray-400">{formatFixtureTimeInWarsaw(f)} Warszawa</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-gray-900 font-medium">{displayTeamName(f.homeTeam)}</span>
+                      <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
+                        <span className="min-w-0 justify-self-start break-words text-gray-900 font-semibold leading-tight sm:justify-self-auto sm:break-normal">
+                          {displayTeamName(f.homeTeam)}
+                        </span>
                         {f.status === 'locked' ? (
-                          <span className="text-green-600 font-bold font-mono text-sm px-2">
+                          <span className="justify-self-center text-green-600 font-bold font-mono text-sm whitespace-nowrap px-1 sm:justify-self-auto">
                             {f.homeScore}:{f.awayScore}
                           </span>
                         ) : (
-                          <span className="text-gray-400 font-mono text-sm px-2">vs</span>
+                          <span className="justify-self-center text-gray-400 font-mono text-sm whitespace-nowrap px-1 sm:justify-self-auto">vs</span>
                         )}
-                        <span className="text-gray-900 font-medium">{displayTeamName(f.awayTeam)}</span>
+                        <span className="min-w-0 justify-self-end break-words text-right text-gray-900 font-semibold leading-tight sm:justify-self-auto sm:break-normal sm:text-left">
+                          {displayTeamName(f.awayTeam)}
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {/* Status icons */}
-                      <span
-                        title={`Zakłady: ${betCount}/${totalPlayers}`}
-                        className={`flex items-center gap-0.5 text-xs ${betCount > 0 ? 'text-green-500' : 'text-gray-300'}`}
-                      >
-                        👤
-                        {totalPlayers > 0 && (
-                          <span className="font-mono">{betCount}/{totalPlayers}</span>
-                        )}
-                      </span>
-                      {f.status === 'locked' && totalPlayers > 0 && (
+                    <div className="mt-3 flex items-center justify-between gap-2 sm:mb-0.5 sm:mt-0 sm:shrink-0 sm:justify-end sm:self-end">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span
-                          title={`Trafienia: ${hitCount}/${totalPlayers}`}
-                          className="flex items-center gap-0.5 text-xs"
+                          title={`Zakłady: ${betCount}/${totalPlayers}`}
+                          className={`flex items-center gap-0.5 text-xs ${betCount > 0 ? 'text-green-500' : 'text-gray-300'}`}
                         >
-                          🎯
-                          <span className="font-mono">{hitCount}/{totalPlayers}</span>
+                          👤
+                          {totalPlayers > 0 && (
+                            <span className="font-mono">{betCount}/{totalPlayers}</span>
+                          )}
                         </span>
-                      )}
-                      {hasFetchedOdds && (
-                        <span title="Kursy pobrane przez hosta" className="text-blue-500">
-                          📊
-                        </span>
-                      )}
-                      {statusBadge(f.status, hasStarted)}
+                        {f.status === 'locked' && totalPlayers > 0 && (
+                          <span
+                            title={`Trafienia: ${hitCount}/${totalPlayers}`}
+                            className="flex items-center gap-0.5 text-xs"
+                          >
+                            🎯
+                            <span className="font-mono">{hitCount}/{totalPlayers}</span>
+                          </span>
+                        )}
+                        {hasFetchedOdds && (
+                          <span title="Kursy pobrane przez hosta" className="text-blue-500">
+                            📊
+                          </span>
+                        )}
+                        {statusBadge(f.status, hasStarted)}
+                      </div>
                       <span className={`text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>›</span>
                     </div>
                   </button>
