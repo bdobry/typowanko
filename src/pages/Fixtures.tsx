@@ -41,7 +41,7 @@ function statusBadge(status: string, hasStarted: boolean) {
 
   if (hasStarted) {
     return (
-      <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">Rozpoczęty</span>
+      <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">W trakcie</span>
     );
   }
 
@@ -64,6 +64,10 @@ function fixtureVersusLabel(fixture: Pick<Fixture, 'homeTeam' | 'awayTeam'>) {
 
 function oddLabel(odd: number | undefined) {
   return odd == null ? 'kurs -' : `kurs ${odd.toFixed(2)}`;
+}
+
+function isFixtureOngoing(fixture: Pick<Fixture, 'date' | 'utcTime' | 'status'>, now: number) {
+  return fixture.status !== 'locked' && hasFixtureStarted(fixture, now);
 }
 
 export function Fixtures() {
@@ -123,9 +127,14 @@ export function Fixtures() {
       return fixture.status !== 'locked' && kickoff > now && kickoff <= now + NEXT_24H_MS;
     })
     .sort(compareFixturesByKickoff);
-  const nextFixture = (fixtures ?? [])
+  const ongoingFixtures = (fixtures ?? [])
+    .filter((fixture) => isFixtureOngoing(fixture, now))
+    .sort(compareFixturesByKickoff);
+  const nextUpcomingFixture = (fixtures ?? [])
     .filter((fixture) => fixture.status !== 'locked' && !hasFixtureStarted(fixture, now))
     .sort(compareFixturesByKickoff)[0] ?? null;
+  const nextFixture = ongoingFixtures.at(-1) ?? nextUpcomingFixture;
+  const nextFixtureOngoing = nextFixture ? isFixtureOngoing(nextFixture, now) : false;
 
   const filtered = (fixtures ?? [])
     .filter((f) => {
@@ -192,10 +201,9 @@ export function Fixtures() {
             key={player.id}
             type="button"
             onClick={() => openFixture(fixtureId)}
-            className="inline-flex items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
+            className="inline-flex items-center rounded bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
           >
             <span className="max-w-28 truncate">{player.name}</span>
-            <span>obstaw</span>
           </button>
         );
       }
@@ -262,7 +270,7 @@ export function Fixtures() {
                   className="min-w-0 text-left"
                 >
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-                    <span className="font-semibold text-gray-700">{formatFixtureTimeInWarsaw(fixture)} Warszawa</span>
+                    <span className="font-semibold text-gray-700">{formatFixtureTimeInWarsaw(fixture)}</span>
                     <span className="font-semibold text-gray-700">{formatFixtureDateInWarsaw(fixture, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
                     <span>{displayStageName(fixture.group ?? fixture.round)}</span>
                   </div>
@@ -281,7 +289,14 @@ export function Fixtures() {
 
       <section className="rounded-lg border border-gray-200 bg-white px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">Najbliższy mecz</h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">Najbliższy mecz</h2>
+            {nextFixtureOngoing && (
+              <span className="shrink-0 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">
+                W trakcie
+              </span>
+            )}
+          </div>
           {nextFixture && (
             <button
               type="button"
