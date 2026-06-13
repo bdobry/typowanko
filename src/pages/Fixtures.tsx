@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { db, type Bet, type Fixture } from '../db';
 import { FixturePanel } from '../components/FixturePanel';
 import { displayStageName, displayTeamName } from '../utils/displayNames';
 import { useSync } from '../sync/syncContextValue';
 import {
   compareFixturesByKickoff,
+  fixtureKickoffMs,
   fixtureWarsawDateKey,
   formatFixtureDateInWarsaw,
   formatFixtureTimeInWarsaw,
   hasFixtureStarted,
 } from '../utils/fixtureTime';
+
+const NEXT_24H_MS = 24 * 60 * 60 * 1000;
 
 const ROUNDS = [
   'Group A','Group B','Group C','Group D','Group E','Group F',
@@ -47,6 +50,22 @@ function statusBadge(status: string, hasStarted: boolean) {
   );
 }
 
+function betScore(bet: Pick<Bet, 'homeScore' | 'awayScore'>) {
+  return `${bet.homeScore}:${bet.awayScore}`;
+}
+
+function betOddsKey(bet: Pick<Bet, 'fixtureId' | 'homeScore' | 'awayScore'>) {
+  return `${bet.fixtureId}:${bet.homeScore}:${bet.awayScore}`;
+}
+
+function fixtureVersusLabel(fixture: Pick<Fixture, 'homeTeam' | 'awayTeam'>) {
+  return `${displayTeamName(fixture.homeTeam)} – ${displayTeamName(fixture.awayTeam)}`;
+}
+
+function oddLabel(odd: number | undefined) {
+  return odd == null ? 'kurs -' : `kurs ${odd.toFixed(2)}`;
+}
+
 export function Fixtures() {
   const { isPlayer, playerId } = useSync();
   const fixtures = useLiveQuery(() => db.fixtures.toArray(), []);
@@ -61,10 +80,13 @@ export function Fixtures() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const fixtureRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const now = useCurrentTime();
+  const sortedPlayers = [...(players ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'pl-PL'));
 
   // Build per-fixture lookup sets
+  const betByPlayerFixture = new Map<string, Bet>();
   const betCountMap = new Map<string, number>();
   for (const b of (allBets ?? [])) {
+    betByPlayerFixture.set(`${b.playerId}:${b.fixtureId}`, b);
     betCountMap.set(b.fixtureId, (betCountMap.get(b.fixtureId) ?? 0) + 1);
   }
   const currentPlayerBetFixtureIds = new Set(
@@ -80,9 +102,13 @@ export function Fixtures() {
   }
   const totalPlayers = (players ?? []).length;
   const fixturesWithFetchedOdds = new Set<string>();
+  const exactOddByBetKey = new Map<string, number>();
   for (const odd of (allOdds ?? [])) {
     if (odd.provider || odd.fetchedAt) {
       fixturesWithFetchedOdds.add(odd.fixtureId);
+    }
+    if (odd.odd > 0) {
+      exactOddByBetKey.set(betOddsKey(odd), odd.odd);
     }
   }
   for (const matchOdd of (allMatchOdds ?? [])) {
@@ -90,6 +116,16 @@ export function Fixtures() {
       fixturesWithFetchedOdds.add(matchOdd.fixtureId);
     }
   }
+
+  const next24Fixtures = (fixtures ?? [])
+    .filter((fixture) => {
+      const kickoff = fixtureKickoffMs(fixture);
+      return fixture.status !== 'locked' && kickoff > now && kickoff <= now + NEXT_24H_MS;
+    })
+    .sort(compareFixturesByKickoff);
+  const nextFixture = (fixtures ?? [])
+    .filter((fixture) => fixture.status !== 'locked' && !hasFixtureStarted(fixture, now))
+    .sort(compareFixturesByKickoff)[0] ?? null;
 
   const filtered = (fixtures ?? [])
     .filter((f) => {
@@ -113,6 +149,72 @@ export function Fixtures() {
     setExpandedId((prev) => (prev === id ? null : id));
   }
 
+  function openFixture(id: string) {
+    setFilter('all');
+    setGroup('all');
+    setExpandedId(id);
+  }
+
+  function renderQuickBetPreview(fixtureId: string) {
+    if (isPlayer && playerId) {
+      const currentPlayerBet = betByPlayerFixture.get(`${playerId}:${fixtureId}`);
+      return currentPlayerBet ? (
+        <span className="inline-flex flex-col items-end rounded bg-green-50 px-2 py-1 text-xs text-green-700 sm:flex-row sm:items-center sm:gap-1">
+          <span className="font-semibold">Twój typ {betScore(currentPlayerBet)}</span>
+          <span className="text-[10px] font-medium text-green-600">
+            {oddLabel(exactOddByBetKey.get(betOddsKey(currentPlayerBet)))}
+          </span>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => openFixture(fixtureId)}
+          className="rounded bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-500"
+        >
+          obstaw
+        </button>
+      );
+    }
+
+    if (sortedPlayers.length === 0) {
+      return (
+        <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-400">
+          Brak graczy
+        </span>
+      );
+    }
+
+    return sortedPlayers.map((player) => {
+      const bet = betByPlayerFixture.get(`${player.id}:${fixtureId}`);
+      if (!bet) {
+        return (
+          <button
+            key={player.id}
+            type="button"
+            onClick={() => openFixture(fixtureId)}
+            className="inline-flex items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
+          >
+            <span className="max-w-28 truncate">{player.name}</span>
+            <span>obstaw</span>
+          </button>
+        );
+      }
+
+      return (
+        <span
+          key={player.id}
+          className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-1 text-xs text-green-700"
+        >
+          <span className="max-w-28 truncate">{player.name}</span>
+          <span className="font-mono font-semibold">{betScore(bet)}</span>
+          <span className="text-[10px] font-medium text-green-600">
+            {oddLabel(exactOddByBetKey.get(betOddsKey(bet)))}
+          </span>
+        </span>
+      );
+    });
+  }
+
   useEffect(() => {
     if (!expandedId) return;
 
@@ -130,7 +232,129 @@ export function Fixtures() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="w-full text-2xl font-bold text-gray-900 sm:w-auto sm:flex-1">Mecze</h1>
+      </div>
 
+      <section className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-gray-700">Twoja strefa typera</h2>
+            <p className="mt-0.5 text-xs text-gray-400">
+              Szybki podgląd najbliższych typów i kursów przed zamknięciem obstawiania.
+            </p>
+          </div>
+          <span className="shrink-0 text-xs text-gray-400">Najbliższe 24h</span>
+        </div>
+
+        {next24Fixtures.length === 0 ? (
+          <p className="mt-3 rounded bg-gray-50 px-3 py-3 text-center text-sm text-gray-400">
+            Brak meczów w ciągu najbliższych 24 godzin.
+          </p>
+        ) : (
+          <div className="mt-3 divide-y divide-gray-100">
+            {next24Fixtures.map((fixture) => (
+              <div
+                key={fixture.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5 transition-colors hover:bg-gray-50 sm:px-2"
+              >
+                <button
+                  type="button"
+                  onClick={() => openFixture(fixture.id)}
+                  className="min-w-0 text-left"
+                >
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+                    <span className="font-semibold text-gray-700">{formatFixtureTimeInWarsaw(fixture)} Warszawa</span>
+                    <span className="font-semibold text-gray-700">{formatFixtureDateInWarsaw(fixture, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                    <span>{displayStageName(fixture.group ?? fixture.round)}</span>
+                  </div>
+                  <div className="mt-1 truncate text-sm font-semibold text-gray-900">
+                    {fixtureVersusLabel(fixture)}
+                  </div>
+                </button>
+                <div className="flex min-w-0 max-w-[48vw] flex-wrap justify-end gap-1 sm:max-w-none">
+                  {renderQuickBetPreview(fixture.id)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">Najbliższy mecz</h2>
+          {nextFixture && (
+            <button
+              type="button"
+              onClick={() => openFixture(nextFixture.id)}
+              className="text-xs text-gray-400 transition-colors hover:text-gray-700"
+            >
+              Otwórz ›
+            </button>
+          )}
+        </div>
+
+        {!nextFixture ? (
+          <p className="mt-3 rounded bg-gray-50 px-3 py-3 text-center text-sm text-gray-400">
+            Brak nadchodzących meczów.
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-start">
+            <div className="min-w-0">
+              <p className="text-xs text-gray-400">
+                {formatFixtureDateInWarsaw(nextFixture, { weekday: 'long', day: 'numeric', month: 'long' })},
+                {' '}
+                {formatFixtureTimeInWarsaw(nextFixture)} Warszawa
+              </p>
+              <p className="mt-1 text-base font-bold leading-tight text-gray-900">
+                {fixtureVersusLabel(nextFixture)}
+              </p>
+              <p className="mt-1 text-xs text-gray-400">
+                {displayStageName(nextFixture.group ?? nextFixture.round)}
+              </p>
+            </div>
+            <div className="min-w-0 rounded bg-gray-50 px-3 py-2">
+              {sortedPlayers.length === 0 ? (
+                <p className="text-sm text-gray-400">Brak graczy do pokazania.</p>
+              ) : (
+                <div className="grid gap-1 sm:grid-cols-2">
+                  {sortedPlayers.map((player) => {
+                    const bet = betByPlayerFixture.get(`${player.id}:${nextFixture.id}`);
+                    const isCurrentPlayer = player.id === playerId;
+                    const betOdd = bet ? exactOddByBetKey.get(betOddsKey(bet)) : undefined;
+                    return (
+                      <div
+                        key={player.id}
+                        className={`flex min-w-0 items-center justify-between gap-2 rounded px-2 py-1.5 text-sm ${
+                          isCurrentPlayer ? 'bg-blue-50 text-blue-900' : 'bg-white text-gray-700'
+                        }`}
+                      >
+                        <span className="min-w-0 truncate">
+                          {player.name}
+                          {isCurrentPlayer && (
+                            <span className="ml-1 text-[10px] font-semibold text-blue-600">Ty</span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-right">
+                          <span className={`block font-mono font-semibold leading-tight ${bet ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {bet ? betScore(bet) : '-'}
+                          </span>
+                          {bet && (
+                            <span className="block text-[10px] font-medium leading-tight text-gray-400">
+                              {oddLabel(betOdd)}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <div className="flex flex-wrap items-center gap-2">
         <select
           value={group}
           onChange={(e) => setGroup(e.target.value)}
