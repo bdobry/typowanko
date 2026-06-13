@@ -92,7 +92,9 @@ function FormStreak({ row }: { row: LeaderboardRow }) {
     <span className="inline-flex items-center justify-center gap-1">
       {row.recentForm.map((entry) => {
         const className =
-          entry.result === 'exact'
+          entry.result === 'upcoming'
+            ? 'bg-gray-200 text-gray-600'
+            : entry.result === 'exact'
             ? 'bg-green-600 text-white'
             : entry.result === 'outcome'
             ? 'bg-yellow-300 text-yellow-900'
@@ -100,10 +102,20 @@ function FormStreak({ row }: { row: LeaderboardRow }) {
             ? 'bg-red-500 text-white'
             : 'bg-gray-200 text-gray-500';
         const label =
-          entry.result === 'exact' ? 'Z' : entry.result === 'outcome' ? 'R' : entry.result === 'miss' ? 'P' : '-';
+          entry.result === 'upcoming'
+            ? '?'
+            : entry.result === 'exact'
+            ? 'Z'
+            : entry.result === 'outcome'
+            ? 'R'
+            : entry.result === 'miss'
+            ? 'P'
+            : '-';
         const title =
           `${displayTeamName(entry.fixture.homeTeam)} - ${displayTeamName(entry.fixture.awayTeam)}: ` +
-          (entry.result === 'none'
+          (entry.result === 'upcoming'
+            ? 'najbliższy mecz'
+            : entry.result === 'none'
             ? 'brak obstawienia'
             : entry.result === 'miss'
             ? 'nietrafione'

@@ -1,4 +1,5 @@
 import { db, type Bet, type Fixture, type Player, type ScoreEntry } from '../db';
+import { compareFixturesByKickoff, hasFixtureStarted } from './fixtureTime';
 
 export function scoreKey(h: number, a: number) {
   return `${h}:${a}`;
@@ -100,7 +101,7 @@ export interface LeaderboardRow {
 
 export interface LeaderboardFormEntry {
   fixture: Fixture;
-  result: 'exact' | 'outcome' | 'miss' | 'none';
+  result: 'upcoming' | 'exact' | 'outcome' | 'miss' | 'none';
   points: number;
 }
 
@@ -128,10 +129,6 @@ export interface LeaderboardData {
 
 function roundPoints(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function fixtureSortKey(fixture: Fixture) {
-  return `${fixture.date} ${fixture.utcTime ?? '99:99'} ${String(fixture.num ?? fixture.id).padStart(4, '0')}`;
 }
 
 type LeaderboardBaseRow = Omit<LeaderboardRow, 'currentPosition' | 'previousPosition' | 'positionDelta'>;
@@ -191,6 +188,14 @@ function buildRows(
         outcomeHits: history.filter((score) => score.pointType === 'outcome').length,
         lastMatchPoints: roundPoints(lastMatchPointsByPlayerId.get(player.id) ?? 0),
         recentForm: recentFixtures.map((fixture) => {
+          if (fixture.status !== 'locked') {
+            return {
+              fixture,
+              result: 'upcoming' as const,
+              points: 0,
+            };
+          }
+
           const score = scoreByFixtureId.get(fixture.id);
           const hasBet = betKeySet.has(`${player.id}:${fixture.id}`);
           return {
@@ -214,7 +219,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
   const totalFixtures = fixtures.length;
   const lockedFixtures = fixtures
     .filter((fixture) => fixture.status === 'locked')
-    .sort((a, b) => fixtureSortKey(a).localeCompare(fixtureSortKey(b)));
+    .sort(compareFixturesByKickoff);
   const fixtureMap = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
   const playerMap = new Map(players.map((player) => [player.id, player]));
   const lastFixture = lockedFixtures.at(-1) ?? null;
@@ -233,7 +238,13 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
   const previousScores = lastFixture
     ? scores.filter((score) => score.fixtureId !== lastFixture.id)
     : scores;
-  const recentFixtures = lockedFixtures.slice(-5);
+  const nextUpcomingFixture = fixtures
+    .filter((fixture) => fixture.status !== 'locked' && !hasFixtureStarted(fixture))
+    .sort(compareFixturesByKickoff)[0];
+  const recentFixtures = [
+    ...(nextUpcomingFixture ? [nextUpcomingFixture] : []),
+    ...lockedFixtures.slice(-5).reverse(),
+  ];
   const previousRows = assignPositions(buildRows(players, previousScores, bets, new Map(), recentFixtures));
   const previousPositionByPlayerId = new Map(
     previousRows.map((row) => [row.player.id, row.currentPosition]),

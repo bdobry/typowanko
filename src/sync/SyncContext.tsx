@@ -14,6 +14,7 @@ import {
   getSyncApiBase,
   parseCombinedId,
   pushLeagueSnapshot,
+  refreshCompletedResults as refreshCompletedResultsRequest,
   regeneratePlayerCodes as regeneratePlayerCodesRequest,
   SyncApiError,
   submitPlayerBet as submitPlayerBetRequest,
@@ -38,6 +39,8 @@ import {
   type StoredSession,
   type SyncContextValue,
 } from './syncContextValue';
+import { refreshLocalCompletedResults } from '../utils/autoResults';
+import { hasFixtureStarted } from '../utils/fixtureTime';
 
 const SESSION_STORAGE_KEY = 'typowankoCloudSession';
 const AUTO_SYNC_DELAY_MS = 1500;
@@ -84,6 +87,12 @@ function getErrorMessage(err: unknown) {
   return err instanceof Error ? err.message : String(err);
 }
 
+function autoResultNoticeMessage(lockedCount: number) {
+  return lockedCount === 1
+    ? 'Automatycznie pobrano wynik zakończonego meczu.'
+    : `Automatycznie pobrano wyniki zakończonych meczów: ${lockedCount}.`;
+}
+
 function mergePlayerCodes(existing: CloudIds | null, newCodes: PlayerCode[], hostId: string) {
   if (newCodes.length === 0) return existing;
 
@@ -128,6 +137,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [cloudIds, setCloudIds] = useState<CloudIds | null>(null);
   const autoSyncTimer = useRef<number | null>(null);
+  const lastAutoResultRefreshAt = useRef(0);
 
   const applyStoredSession = useCallback((stored: StoredSession) => {
     if (stored.role === 'viewer' || stored.role === 'player') {
@@ -390,9 +400,70 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }, AUTO_SYNC_DELAY_MS);
   }, [credential, role, syncNow]);
 
+  const refreshCompletedResultsNow = useCallback(async () => {
+    if (role === 'none') return;
+    if (syncing || (role === 'host' && pending)) return;
+
+    const now = Date.now();
+    if (now - lastAutoResultRefreshAt.current < 60000) return;
+    lastAutoResultRefreshAt.current = now;
+
+    try {
+      if (role === 'local-host') {
+        const lockedFixtureIds = await refreshLocalCompletedResults(now);
+        if (lockedFixtureIds.length > 0) {
+          setNotice(autoResultNoticeMessage(lockedFixtureIds.length));
+        }
+        return;
+      }
+
+      if (!credential) return;
+      const response = await refreshCompletedResultsRequest(credential);
+      if (response.skippedReason === 'missing_api_key' && role === 'host') {
+        const lockedFixtureIds = await refreshLocalCompletedResults(now);
+        if (lockedFixtureIds.length > 0) {
+          markDirty();
+          setNotice(autoResultNoticeMessage(lockedFixtureIds.length));
+        }
+        return;
+      }
+      if (response.revision === revision) return;
+
+      if (role === 'viewer' || role === 'player') {
+        setActiveDatabase(getViewerDatabaseName(credential.leagueId));
+      } else {
+        setHostDatabase();
+      }
+
+      await importSnapshot(response.snapshot);
+      await applyPlayerPresence(response.playerPresence);
+      const credentialWithPlayerId = withPlayerId(credential, response.playerId);
+      const syncedAt = Date.now();
+      if (credentialWithPlayerId !== credential) {
+        setCredential(credentialWithPlayerId);
+      }
+      setRevision(response.revision);
+      setLastSyncAt(syncedAt);
+      setPending(false);
+      saveLastSyncedSnapshot(credential.leagueId, response.snapshot);
+      saveStoredSession(toStoredSession(credentialWithPlayerId, response.revision, syncedAt, cloudIds));
+
+      const lockedCount = response.lockedFixtureIds?.length ?? 0;
+      if (lockedCount > 0) {
+        setNotice(autoResultNoticeMessage(lockedCount));
+      }
+    } catch (err) {
+      console.warn('Automatic result refresh failed.', err);
+    }
+  }, [cloudIds, credential, markDirty, pending, revision, role, syncing]);
+
   const submitPlayerBet = useCallback(async (fixtureId: string, homeScore: number, awayScore: number) => {
     if (role !== 'player' || !credential) {
       throw new Error('Tylko gracz może zapisać własny zakład.');
+    }
+    const fixture = await db.fixtures.get(fixtureId);
+    if (fixture && hasFixtureStarted(fixture)) {
+      throw new Error('Mecz już się rozpoczął. Zakładów nie można już zmieniać.');
     }
 
     setSyncing(true);
@@ -504,6 +575,28 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('focus', handleFocus);
     };
   }, [credential, ready, role, syncNow]);
+
+  useEffect(() => {
+    if (!ready || role === 'none') return undefined;
+    if (role !== 'local-host' && !credential) return undefined;
+
+    const initialRefresh = window.setTimeout(() => {
+      refreshCompletedResultsNow().catch(() => {
+        // Background refresh errors are intentionally non-blocking.
+      });
+    }, 2500);
+
+    const interval = window.setInterval(() => {
+      refreshCompletedResultsNow().catch(() => {
+        // Background refresh errors are intentionally non-blocking.
+      });
+    }, 60000);
+
+    return () => {
+      window.clearTimeout(initialRefresh);
+      window.clearInterval(interval);
+    };
+  }, [credential, ready, refreshCompletedResultsNow, role]);
 
   const value = useMemo<SyncContextValue>(
     () => ({

@@ -40,6 +40,13 @@ export interface SnapshotResponse {
   snapshot: TypowankoSnapshot;
 }
 
+export interface ResultRefreshResponse extends SnapshotResponse {
+  lockedFixtureIds?: string[];
+  refreshedAt?: number;
+  throttled?: boolean;
+  skippedReason?: string;
+}
+
 export interface PushSnapshotResponse {
   leagueId: string;
   revision: number;
@@ -171,6 +178,14 @@ export async function submitPlayerBet(
     }),
   });
   return readResponse<SnapshotResponse>(response);
+}
+
+export async function refreshCompletedResults(credential: CloudCredential) {
+  const response = await fetch(endpoint(`/api/leagues/${credential.leagueId}/results/refresh`), {
+    method: 'POST',
+    headers: credentialHeaders(credential),
+  });
+  return readResponse<ResultRefreshResponse>(response);
 }
 
 export async function regeneratePlayerCodes(credential: CloudCredential) {

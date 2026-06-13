@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Bet, type Fixture, type Odd } from '../db';
 import { recalcFixture } from '../utils/scoring';
@@ -6,8 +6,24 @@ import { fetchAllOdds, getApiFootballKey } from '../utils/oddsApi';
 import { fetchMatchResult } from '../utils/footballDataApi';
 import { useSync } from '../sync/syncContextValue';
 import { displayStageName, displayTeamName, toStoredTeamName } from '../utils/displayNames';
+import {
+  formatFixtureDateInWarsaw,
+  formatFixtureTimeInWarsaw,
+  hasFixtureStarted,
+} from '../utils/fixtureTime';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
+
+function useCurrentTime() {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return now;
+}
 
 function ScoreSelect({
   value,
@@ -47,6 +63,10 @@ function PlayerBetForm({
 
   async function saveOwnBet(e: React.FormEvent) {
     e.preventDefault();
+    if (hasFixtureStarted(fixture)) {
+      setError('Mecz już się rozpoczął. Zakładów nie można już zmieniać.');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -125,6 +145,7 @@ export function FixturePanel({ id }: { id: string }) {
 
   const [fetchingResult, setFetchingResult] = useState(false);
   const [fetchResultError, setFetchResultError] = useState<string | null>(null);
+  const now = useCurrentTime();
 
   const currentPlayerBet = playerId
     ? (bets ?? []).find((bet) => bet.playerId === playerId)
@@ -143,6 +164,7 @@ export function FixturePanel({ id }: { id: string }) {
     e.preventDefault();
     if (isViewer) return;
     if (!betPlayerId) return;
+    if (hasFixtureStarted(fixture!)) return;
     const existing = await db.bets
       .where('[playerId+fixtureId]')
       .equals([betPlayerId, fixture!.id])
@@ -375,6 +397,8 @@ export function FixturePanel({ id }: { id: string }) {
   }
 
   const isLocked = fixture.status === 'locked';
+  const hasStarted = hasFixtureStarted(fixture, now);
+  const betsClosed = isLocked || hasStarted;
 
   return (
     <div className="space-y-4 pt-2">
@@ -431,10 +455,12 @@ export function FixturePanel({ id }: { id: string }) {
         )}
 
         <div className="text-xs text-gray-400 mt-2">
-          {new Date(fixture.date + 'T12:00:00').toLocaleDateString('pl-PL', {
-            weekday: 'long', day: 'numeric', month: 'long',
+          {formatFixtureDateInWarsaw(fixture, {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
           })}
-          {fixture.utcTime && ` · ${fixture.utcTime} UTC`}
+          {fixture.utcTime && ` · ${formatFixtureTimeInWarsaw(fixture)} Warszawa`}
           {fixture.venue && ` · ${fixture.venue}`}
         </div>
       </div>
@@ -453,7 +479,7 @@ export function FixturePanel({ id }: { id: string }) {
               onClick={fetchResultFromApi}
               disabled={fetchingResult}
               className="text-xs bg-blue-100 hover:bg-blue-200 disabled:opacity-50 text-blue-700 px-3 py-1.5 rounded transition-colors"
-              title="Pobierz wynik z football-data.org"
+              title="Pobierz wynik z api-football.com"
             >
               {fetchingResult ? '⏳ Pobieranie…' : '🔄 Pobierz wynik'}
             </button>
@@ -493,7 +519,7 @@ export function FixturePanel({ id }: { id: string }) {
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <h2 className="text-sm font-semibold text-gray-500 mb-3">Zakłady graczy</h2>
 
-        {isPlayer && !isLocked && playerId && (
+        {isPlayer && !betsClosed && playerId && (
           <PlayerBetForm
             key={`${fixture.id}:${currentPlayerBet?.homeScore ?? 'x'}:${currentPlayerBet?.awayScore ?? 'x'}`}
             fixture={fixture}
@@ -501,13 +527,15 @@ export function FixturePanel({ id }: { id: string }) {
           />
         )}
 
-        {isPlayer && isLocked && (
+        {isPlayer && betsClosed && (
           <p className="mb-4 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-            Mecz jest zablokowany. Zakładów nie można już zmieniać.
+            {isLocked
+              ? 'Mecz jest zablokowany. Zakładów nie można już zmieniać.'
+              : 'Mecz już się rozpoczął. Zakładów nie można już zmieniać.'}
           </p>
         )}
 
-        {!isLocked && !isViewer && (players?.length ?? 0) > 0 && (
+        {!betsClosed && !isViewer && (players?.length ?? 0) > 0 && (
           <form onSubmit={saveBet} className="flex items-center gap-2 mb-4 flex-wrap">
             <select
               value={betPlayerId}
@@ -531,6 +559,12 @@ export function FixturePanel({ id }: { id: string }) {
               Zapisz zakład
             </button>
           </form>
+        )}
+
+        {hasStarted && !isLocked && !isViewer && (
+          <p className="mb-4 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+            Mecz już się rozpoczął. Dodawanie, zmiana i usuwanie zakładów są zablokowane.
+          </p>
         )}
 
         {(players?.length ?? 0) === 0 && (
@@ -579,7 +613,7 @@ export function FixturePanel({ id }: { id: string }) {
                   {isLocked && bet && !score && (
                     <span className="text-gray-400 text-xs">chybił</span>
                   )}
-                  {!isLocked && !isViewer && bet && (
+                  {!betsClosed && !isViewer && bet && (
                     <button
                       onClick={async () => {
                         await db.bets.where('[playerId+fixtureId]').equals([p.id, fixture.id]).delete();

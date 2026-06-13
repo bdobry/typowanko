@@ -1,8 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { ReactNode } from 'react';
-import { db, type Bet, type Player } from '../db';
+import { db, type Bet, type Fixture, type Player } from '../db';
 import { displayTeamName } from '../utils/displayNames';
 import { getLeaderboardData } from '../utils/scoring';
+import { compareFixturesByKickoff } from '../utils/fixtureTime';
 
 function formatLastOnline(value?: number) {
   if (!value) return 'brak danych';
@@ -61,6 +62,31 @@ function rankLabelFromValues(
   return `–/${playerCount}`;
 }
 
+function scoreOutcome(homeScore: number, awayScore: number) {
+  if (homeScore > awayScore) return 'home';
+  if (homeScore < awayScore) return 'away';
+  return 'draw';
+}
+
+function betResultKind(bet: Bet, fixture?: Fixture) {
+  if (
+    !fixture ||
+    fixture.status !== 'locked' ||
+    fixture.homeScore == null ||
+    fixture.awayScore == null
+  ) {
+    return 'pending';
+  }
+
+  if (bet.homeScore === fixture.homeScore && bet.awayScore === fixture.awayScore) {
+    return 'exact';
+  }
+
+  return scoreOutcome(bet.homeScore, bet.awayScore) === scoreOutcome(fixture.homeScore, fixture.awayScore)
+    ? 'outcome'
+    : 'miss';
+}
+
 export function PlayerHistory({ player, onClose }: { player: Player; onClose: () => void }) {
   const currentPlayer = useLiveQuery(() => db.players.get(player.id), [player.id]);
   const bets = useLiveQuery(() => db.bets.where('playerId').equals(player.id).toArray(), [player.id]);
@@ -92,15 +118,10 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
         .map((bet) => oddsMap.get(`${bet.fixtureId}:${bet.homeScore}:${bet.awayScore}`))
         .filter((odd): odd is number => odd != null),
     );
-  const betOutcome = (homeScore: number, awayScore: number) => {
-    if (homeScore > awayScore) return 'home';
-    if (homeScore < awayScore) return 'away';
-    return 'draw';
-  };
-
   const sortedBets = [...bets].sort((a, b) => {
     const fa = fixtureMap.get(a.fixtureId);
     const fb = fixtureMap.get(b.fixtureId);
+    if (fa && fb) return compareFixturesByKickoff(fa, fb);
     return (fa?.date ?? '').localeCompare(fb?.date ?? '');
   });
   const completedBets = sortedBets.filter((bet) => fixtureMap.get(bet.fixtureId)?.status === 'locked');
@@ -113,7 +134,7 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
       .map((bet) => {
         const matchOdd = matchOddsMap.get(bet.fixtureId);
         if (!matchOdd) return null;
-        const outcome = betOutcome(bet.homeScore, bet.awayScore);
+        const outcome = scoreOutcome(bet.homeScore, bet.awayScore);
         return outcome === 'home'
           ? matchOdd.homeOdd
           : outcome === 'draw'
@@ -215,6 +236,21 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
                   const fixture = fixtureMap.get(bet.fixtureId);
                   const score = scoreMap.get(bet.fixtureId);
                   const isLocked = fixture?.status === 'locked';
+                  const resultKind = betResultKind(bet, fixture);
+                  const betClass =
+                    resultKind === 'exact'
+                      ? 'text-green-700'
+                      : resultKind === 'outcome'
+                      ? 'text-yellow-700'
+                      : resultKind === 'miss'
+                      ? 'text-red-600'
+                      : 'text-gray-800';
+                  const pointsClass =
+                    score?.pointType === 'outcome'
+                      ? 'text-yellow-700'
+                      : score
+                      ? 'text-green-600'
+                      : '';
                   return (
                     <tr key={bet.id} className="hover:bg-gray-50">
                       <td className="py-2 pr-3 text-gray-700">
@@ -223,12 +259,12 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
                         </div>
                         <div className="text-xs text-gray-400">{fixture?.date}</div>
                       </td>
-                      <td className="py-2 px-2 text-center font-mono text-gray-800">
+                      <td className={`py-2 px-2 text-center font-mono font-semibold ${betClass}`}>
                         {bet.homeScore}:{bet.awayScore}
                       </td>
                       <td className="py-2 px-2 text-center font-mono">
                         {isLocked ? (
-                          <span className="text-green-600 font-semibold">
+                          <span className="text-gray-950 font-semibold">
                             {fixture.homeScore}:{fixture.awayScore}
                           </span>
                         ) : (
@@ -237,9 +273,9 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
                       </td>
                       <td className="py-2 text-right">
                         {score ? (
-                          <span className="text-green-600 font-bold">+{score.points.toFixed(2)}</span>
+                          <span className={`${pointsClass} font-bold`}>+{score.points.toFixed(2)}</span>
                         ) : isLocked ? (
-                          <span className="text-gray-400 text-xs">chybił</span>
+                          <span className="text-red-500 text-xs font-semibold">chybił</span>
                         ) : (
                           <span className="text-gray-300 text-xs">–</span>
                         )}

@@ -14,6 +14,7 @@ export const SNAPSHOT_SCHEMA_VERSION = 1;
 export interface TypowankoSnapshot {
   schemaVersion: number;
   exportedAt: number;
+  autoResultsLastCheckedAt?: number;
   players: Player[];
   fixtures: Fixture[];
   odds: Odd[];

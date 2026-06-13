@@ -1,8 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { FixturePanel } from '../components/FixturePanel';
 import { displayStageName, displayTeamName } from '../utils/displayNames';
+import {
+  compareFixturesByKickoff,
+  fixtureWarsawDateKey,
+  formatFixtureDateInWarsaw,
+  formatFixtureTimeInWarsaw,
+  hasFixtureStarted,
+} from '../utils/fixtureTime';
 
 const ROUNDS = [
   'Group A','Group B','Group C','Group D','Group E','Group F',
@@ -10,16 +17,37 @@ const ROUNDS = [
   'Round of 32','Round of 16','Quarter-final','Semi-final','Third place','Final',
 ];
 
-function statusBadge(status: string) {
-  return status === 'locked' ? (
-    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Zakończony</span>
-  ) : (
+function useCurrentTime() {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return now;
+}
+
+function statusBadge(status: string, hasStarted: boolean) {
+  if (status === 'locked') {
+    return (
+      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Zakończony</span>
+    );
+  }
+
+  if (hasStarted) {
+    return (
+      <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">Rozpoczęty</span>
+    );
+  }
+
+  return (
     <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Nadchodzący</span>
   );
 }
 
 export function Fixtures() {
-  const fixtures = useLiveQuery(() => db.fixtures.orderBy('date').toArray(), []);
+  const fixtures = useLiveQuery(() => db.fixtures.toArray(), []);
   const allBets = useLiveQuery(() => db.bets.toArray(), []);
   const allOdds = useLiveQuery(() => db.odds.toArray(), []);
   const allMatchOdds = useLiveQuery(() => db.matchOdds.toArray(), []);
@@ -29,6 +57,7 @@ export function Fixtures() {
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'locked'>('all');
   const [group, setGroup] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const now = useCurrentTime();
 
   // Build per-fixture lookup sets
   const betCountMap = new Map<string, number>();
@@ -52,19 +81,22 @@ export function Fixtures() {
     }
   }
 
-  const filtered = (fixtures ?? []).filter((f) => {
-    if (filter !== 'all' && f.status !== filter) return false;
-    if (group !== 'all') {
-      const label = f.group ?? f.round;
-      if (label !== group) return false;
-    }
-    return true;
-  });
+  const filtered = (fixtures ?? [])
+    .filter((f) => {
+      if (filter !== 'all' && f.status !== filter) return false;
+      if (group !== 'all') {
+        const label = f.group ?? f.round;
+        if (label !== group) return false;
+      }
+      return true;
+    })
+    .sort(compareFixturesByKickoff);
 
-  // Group fixtures by date
+  // Group fixtures by Warsaw local date.
   const byDate: Record<string, typeof filtered> = {};
   for (const f of filtered) {
-    (byDate[f.date] = byDate[f.date] ?? []).push(f);
+    const key = fixtureWarsawDateKey(f);
+    (byDate[key] = byDate[key] ?? []).push(f);
   }
 
   function toggleExpand(id: string) {
@@ -109,9 +141,7 @@ export function Fixtures() {
       {Object.entries(byDate).map(([date, games]) => (
         <div key={date}>
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">
-            {new Date(date + 'T12:00:00').toLocaleDateString('pl-PL', {
-              weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-            })}
+            {formatFixtureDateInWarsaw(games[0])}
           </h2>
           <div className="space-y-1">
             {games.map((f) => {
@@ -119,6 +149,7 @@ export function Fixtures() {
               const betCount = betCountMap.get(f.id) ?? 0;
               const hitCount = hitCountMap.get(f.id) ?? 0;
               const hasFetchedOdds = fixturesWithFetchedOdds.has(f.id);
+              const hasStarted = hasFixtureStarted(f, now);
               return (
                 <div key={f.id} className="rounded-lg overflow-hidden border border-gray-200 hover:border-gray-300 transition-colors">
                   <button
@@ -129,7 +160,7 @@ export function Fixtures() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-gray-400">{displayStageName(f.group ?? f.round)}</span>
                         {f.utcTime && (
-                          <span className="text-xs text-gray-400">{f.utcTime} UTC</span>
+                          <span className="text-xs text-gray-400">{formatFixtureTimeInWarsaw(f)} Warszawa</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
@@ -169,7 +200,7 @@ export function Fixtures() {
                           📊
                         </span>
                       )}
-                      {statusBadge(f.status)}
+                      {statusBadge(f.status, hasStarted)}
                       <span className={`text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>›</span>
                     </div>
                   </button>

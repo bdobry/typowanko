@@ -45,6 +45,16 @@ function teamsMatch(apiName: string, fixtureName: string): boolean {
   return a === b || a.includes(b) || b.includes(a);
 }
 
+function addUtcDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function fixtureSearchDates(date: string): string[] {
+  return [date, addUtcDays(date, 1), addUtcDays(date, -1)];
+}
+
 /**
  * Fetch the final score for a specific match from v3.football.api-sports.io.
  *
@@ -62,65 +72,67 @@ export async function fetchMatchResult(
   date: string,
   apiKey: string,
 ): Promise<MatchResult> {
-  const url = new URL(`${API_BASE}/fixtures`);
-  url.searchParams.set('date', date);
-  url.searchParams.set('league', String(WC_LEAGUE_ID));
-  url.searchParams.set('season', String(WC_SEASON));
+  for (const searchDate of fixtureSearchDates(date)) {
+    const url = new URL(`${API_BASE}/fixtures`);
+    url.searchParams.set('date', searchDate);
+    url.searchParams.set('league', String(WC_LEAGUE_ID));
+    url.searchParams.set('season', String(WC_SEASON));
 
-  const res = await fetch(url.toString(), {
-    headers: { 'x-apisports-key': apiKey },
-  });
+    const res = await fetch(url.toString(), {
+      headers: { 'x-apisports-key': apiKey },
+    });
 
-  if (!res.ok) {
-    let message = `API error ${res.status}`;
-    try {
-      const body = await res.json();
-      if (body?.message) message = body.message;
-    } catch {
-      // ignore
+    if (!res.ok) {
+      let message = `API error ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.message) message = body.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(message);
     }
-    throw new Error(message);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+
+    if (data?.errors && Object.keys(data.errors).length > 0) {
+      const firstError = Object.values(data.errors)[0];
+      throw new Error(String(firstError));
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fixtures: any[] = data.response ?? [];
+
+    const entry = fixtures.find(
+      (f) =>
+        teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
+        teamsMatch(f.teams?.away?.name ?? '', awayTeam),
+    );
+
+    if (!entry) continue;
+
+    const status: string = entry.fixture?.status?.short ?? 'UNKNOWN';
+    const FINISHED_STATUSES = ['FT', 'AET', 'PEN'];
+
+    if (!FINISHED_STATUSES.includes(status)) {
+      throw new Error(
+        `Mecz "${homeTeam} vs ${awayTeam}" ma status: ${status}. Wynik dostępny tylko po zakończeniu meczu.`,
+      );
+    }
+
+    const homeScore: number = entry.goals?.home;
+    const awayScore: number = entry.goals?.away;
+
+    if (homeScore == null || awayScore == null) {
+      throw new Error(`Brak wyniku dla meczu "${homeTeam} vs ${awayTeam}".`);
+    }
+
+    return { homeScore, awayScore, status };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data: any = await res.json();
-
-  if (data?.errors && Object.keys(data.errors).length > 0) {
-    const firstError = Object.values(data.errors)[0];
-    throw new Error(String(firstError));
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fixtures: any[] = data.response ?? [];
-
-  const entry = fixtures.find(
-    (f) =>
-      teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
-      teamsMatch(f.teams?.away?.name ?? '', awayTeam),
+  throw new Error(
+    `Nie znaleziono meczu "${homeTeam} vs ${awayTeam}" na ${date}. ` +
+      `Mecz może jeszcze nie być dostępny w API lub nazwy drużyn się różnią.`,
   );
-
-  if (!entry) {
-    throw new Error(
-      `Nie znaleziono meczu "${homeTeam} vs ${awayTeam}" na ${date}. ` +
-        `Mecz może jeszcze nie być dostępny w API lub nazwy drużyn się różnią.`,
-    );
-  }
-
-  const status: string = entry.fixture?.status?.short ?? 'UNKNOWN';
-  const FINISHED_STATUSES = ['FT', 'AET', 'PEN'];
-
-  if (!FINISHED_STATUSES.includes(status)) {
-    throw new Error(
-      `Mecz "${homeTeam} vs ${awayTeam}" ma status: ${status}. Wynik dostępny tylko po zakończeniu meczu.`,
-    );
-  }
-
-  const homeScore: number = entry.goals?.home;
-  const awayScore: number = entry.goals?.away;
-
-  if (homeScore == null || awayScore == null) {
-    throw new Error(`Brak wyniku dla meczu "${homeTeam} vs ${awayTeam}".`);
-  }
-
-  return { homeScore, awayScore, status };
 }

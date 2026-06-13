@@ -18,6 +18,7 @@ type D1Database = {
 
 type Env = {
   DB: D1Database;
+  API_FOOTBALL_KEY?: string;
 };
 
 type SnapshotPayload = {
@@ -30,6 +31,60 @@ type PlayerBetPayload = {
   fixtureId?: unknown;
   homeScore?: unknown;
   awayScore?: unknown;
+};
+
+type SnapshotFixtureRecord = {
+  id?: unknown;
+  round?: unknown;
+  group?: unknown;
+  homeTeam?: unknown;
+  awayTeam?: unknown;
+  date?: unknown;
+  utcTime?: unknown;
+  venue?: unknown;
+  status?: unknown;
+  homeScore?: unknown;
+  awayScore?: unknown;
+  num?: unknown;
+};
+
+type SnapshotOddRecord = {
+  id?: number;
+  fixtureId?: unknown;
+  homeScore?: unknown;
+  awayScore?: unknown;
+  odd?: unknown;
+};
+
+type SnapshotBetRecord = {
+  id?: number;
+  playerId?: unknown;
+  fixtureId?: unknown;
+  homeScore?: unknown;
+  awayScore?: unknown;
+  updatedAt?: number;
+  updatedBy?: 'host' | 'player';
+};
+
+type SnapshotMatchOddRecord = {
+  id?: number;
+  fixtureId?: unknown;
+  homeOdd?: unknown;
+  drawOdd?: unknown;
+  awayOdd?: unknown;
+};
+
+type SnapshotScoreRecord = {
+  id?: number;
+  playerId?: unknown;
+  fixtureId?: unknown;
+  points?: unknown;
+  betHomeScore?: unknown;
+  betAwayScore?: unknown;
+  resultHomeScore?: unknown;
+  resultAwayScore?: unknown;
+  odd?: unknown;
+  pointType?: 'exact' | 'outcome';
 };
 
 type LeagueRow = {
@@ -61,20 +116,13 @@ type RawCredential = {
 type SnapshotRecord = {
   schemaVersion?: number;
   exportedAt?: number;
+  autoResultsLastCheckedAt?: number;
   players: Array<{ id?: unknown; name?: unknown; lastOnlineAt?: unknown }>;
-  fixtures: Array<{ id?: unknown; status?: unknown }>;
-  odds: unknown[];
-  bets: Array<{
-    id?: number;
-    playerId?: unknown;
-    fixtureId?: unknown;
-    homeScore?: unknown;
-    awayScore?: unknown;
-    updatedAt?: number;
-    updatedBy?: 'host' | 'player';
-  }>;
-  scores: unknown[];
-  matchOdds: unknown[];
+  fixtures: SnapshotFixtureRecord[];
+  odds: SnapshotOddRecord[];
+  bets: SnapshotBetRecord[];
+  scores: SnapshotScoreRecord[];
+  matchOdds: SnapshotMatchOddRecord[];
 };
 
 const CORS_HEADERS = {
@@ -84,6 +132,13 @@ const CORS_HEADERS = {
 };
 
 const ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const API_FOOTBALL_BASE = 'https://v3.football.api-sports.io';
+const WC_LEAGUE_ID = 1;
+const WC_SEASON = 2026;
+const BET_LOCK_MESSAGE = 'Mecz już się rozpoczął. Zakładów nie można już zmieniać.';
+const AUTO_RESULT_REFRESH_MIN_INTERVAL_MS = 60 * 1000;
+const RESULT_FETCH_AFTER_KICKOFF_MS = 2 * 60 * 60 * 1000;
+const FINISHED_STATUSES = new Set(['FT', 'AET', 'PEN']);
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -157,6 +212,196 @@ function playerIdsFromSnapshot(snapshot: SnapshotRecord) {
 
 function timestampValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function fixtureKickoffMs(fixture: SnapshotFixtureRecord) {
+  if (typeof fixture.date !== 'string') return Number.POSITIVE_INFINITY;
+  const time = typeof fixture.utcTime === 'string' ? fixture.utcTime : '23:59';
+  const timestamp = Date.parse(`${fixture.date}T${time}:00Z`);
+  return Number.isNaN(timestamp) ? Number.POSITIVE_INFINITY : timestamp;
+}
+
+function hasFixtureStarted(fixture: SnapshotFixtureRecord, now: number) {
+  return now >= fixtureKickoffMs(fixture);
+}
+
+function canFetchFixtureResult(fixture: SnapshotFixtureRecord, now: number) {
+  return now >= fixtureKickoffMs(fixture) + RESULT_FETCH_AFTER_KICKOFF_MS;
+}
+
+function addUtcDays(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function fixtureSearchDates(date: string) {
+  return [date, addUtcDays(date, 1), addUtcDays(date, -1)];
+}
+
+const TEAM_NAME_ALIASES: Record<string, string> = {
+  'united states': 'usa',
+  'usa': 'usa',
+  'korea republic': 'south korea',
+  'republic of korea': 'south korea',
+  'cote d ivoire': 'ivory coast',
+  'ivory coast': 'ivory coast',
+  'cape verde islands': 'cape verde',
+  'cape verde': 'cape verde',
+  'bosnia and herzegovina': 'bosnia and herzegovina',
+  'curacao': 'curacao',
+  'new zealand': 'new zealand',
+  'republic of ireland': 'ireland',
+};
+
+function normalizeTeamName(name: string) {
+  const normalized = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return TEAM_NAME_ALIASES[normalized] ?? normalized;
+}
+
+function teamsMatch(apiName: string, fixtureName: string) {
+  const apiTeam = normalizeTeamName(apiName);
+  const fixtureTeam = normalizeTeamName(fixtureName);
+  return apiTeam === fixtureTeam || apiTeam.includes(fixtureTeam) || fixtureTeam.includes(apiTeam);
+}
+
+function scoreOutcome(homeScore: number, awayScore: number) {
+  if (homeScore > awayScore) return 'home';
+  if (homeScore < awayScore) return 'away';
+  return 'draw';
+}
+
+function numericValue(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+async function apiFootballGet(url: URL, apiKey: string) {
+  const response = await fetch(url.toString(), {
+    headers: { 'x-apisports-key': apiKey },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`);
+  }
+
+  const data = await response.json() as {
+    errors?: Record<string, unknown>;
+    response?: unknown[];
+  };
+  if (data.errors && Object.keys(data.errors).length > 0) {
+    throw new Error(String(Object.values(data.errors)[0]));
+  }
+  return data.response ?? [];
+}
+
+async function fetchMatchResultFromApi(
+  homeTeam: string,
+  awayTeam: string,
+  date: string,
+  apiKey: string,
+) {
+  for (const searchDate of fixtureSearchDates(date)) {
+    const url = new URL(`${API_FOOTBALL_BASE}/fixtures`);
+    url.searchParams.set('date', searchDate);
+    url.searchParams.set('league', String(WC_LEAGUE_ID));
+    url.searchParams.set('season', String(WC_SEASON));
+
+    const entries = await apiFootballGet(url, apiKey);
+    for (const entry of entries as Array<Record<string, unknown>>) {
+      const teams = entry.teams as { home?: { name?: string }; away?: { name?: string } } | undefined;
+      const goals = entry.goals as { home?: number; away?: number } | undefined;
+      const fixture = entry.fixture as { status?: { short?: string } } | undefined;
+      const apiHomeTeam = teams?.home?.name ?? '';
+      const apiAwayTeam = teams?.away?.name ?? '';
+      const directMatch = teamsMatch(apiHomeTeam, homeTeam) && teamsMatch(apiAwayTeam, awayTeam);
+      const reversedMatch = teamsMatch(apiHomeTeam, awayTeam) && teamsMatch(apiAwayTeam, homeTeam);
+      if (!directMatch && !reversedMatch) continue;
+
+      const status = fixture?.status?.short ?? 'UNKNOWN';
+      if (!FINISHED_STATUSES.has(status)) return null;
+      if (goals?.home == null || goals?.away == null) return null;
+
+      return {
+        homeScore: reversedMatch ? goals.away : goals.home,
+        awayScore: reversedMatch ? goals.home : goals.away,
+        status,
+      };
+    }
+  }
+
+  return null;
+}
+
+function recalculateFixtureScores(snapshot: SnapshotRecord, fixture: SnapshotFixtureRecord) {
+  if (typeof fixture.id !== 'string') return;
+  const resultHomeScore = numericValue(fixture.homeScore);
+  const resultAwayScore = numericValue(fixture.awayScore);
+  if (resultHomeScore == null || resultAwayScore == null) return;
+
+  const exactOdd = snapshot.odds.find(
+    (odd) =>
+      odd.fixtureId === fixture.id &&
+      odd.homeScore === resultHomeScore &&
+      odd.awayScore === resultAwayScore,
+  );
+  const exactOddValue = numericValue(exactOdd?.odd) ?? 0;
+  const matchOdd = snapshot.matchOdds.find((odd) => odd.fixtureId === fixture.id);
+  const resultOutcome = scoreOutcome(resultHomeScore, resultAwayScore);
+  const nextScores: SnapshotScoreRecord[] = snapshot.scores.filter(
+    (score) => score.fixtureId !== fixture.id,
+  );
+
+  for (const bet of snapshot.bets) {
+    if (bet.fixtureId !== fixture.id || typeof bet.playerId !== 'string') continue;
+    if (!isSupportedScore(bet.homeScore) || !isSupportedScore(bet.awayScore)) continue;
+
+    const isExact = bet.homeScore === resultHomeScore && bet.awayScore === resultAwayScore;
+    if (isExact && exactOddValue > 0) {
+      nextScores.push({
+        playerId: bet.playerId,
+        fixtureId: fixture.id,
+        points: exactOddValue,
+        betHomeScore: bet.homeScore,
+        betAwayScore: bet.awayScore,
+        resultHomeScore,
+        resultAwayScore,
+        odd: exactOddValue,
+        pointType: 'exact',
+      });
+      continue;
+    }
+
+    if (!isExact && matchOdd) {
+      const betOutcome = scoreOutcome(bet.homeScore, bet.awayScore);
+      if (betOutcome !== resultOutcome) continue;
+      const outcomeOdd =
+        resultOutcome === 'home'
+          ? numericValue(matchOdd.homeOdd)
+          : resultOutcome === 'draw'
+          ? numericValue(matchOdd.drawOdd)
+          : numericValue(matchOdd.awayOdd);
+      if (outcomeOdd == null || outcomeOdd <= 0) continue;
+      nextScores.push({
+        playerId: bet.playerId,
+        fixtureId: fixture.id,
+        points: outcomeOdd,
+        betHomeScore: bet.homeScore,
+        betAwayScore: bet.awayScore,
+        resultHomeScore,
+        resultAwayScore,
+        odd: outcomeOdd,
+        pointType: 'outcome',
+      });
+    }
+  }
+
+  snapshot.scores = nextScores;
 }
 
 function markPlayerOnline(snapshot: SnapshotRecord, playerId: string, now: number) {
@@ -578,11 +823,11 @@ async function updatePlayerBetFromBody(
   if (!fixture) {
     return errorResponse(404, 'Fixture not found.');
   }
-  if (fixture.status === 'locked') {
-    return errorResponse(409, 'This fixture is already locked.');
+  const now = Date.now();
+  if (fixture.status === 'locked' || hasFixtureStarted(fixture, now)) {
+    return errorResponse(409, BET_LOCK_MESSAGE);
   }
 
-  const now = Date.now();
   markPlayerOnline(snapshot, auth.playerId, now);
   const existingIndex = snapshot.bets.findIndex(
     (bet) => bet.playerId === auth.playerId && bet.fixtureId === body.fixtureId,
@@ -633,6 +878,178 @@ async function updatePlayerBetFromBody(
     playerId: auth.playerId,
     playerPresence: playerPresenceFromSnapshot(snapshot),
     snapshot,
+  });
+}
+
+async function refreshCompletedResults(request: Request, env: Env, leagueId: string) {
+  const league = await getLeague(env, leagueId);
+  if (!league) return errorResponse(404, 'League not found.');
+
+  const auth = await authenticateCredential(env, league, request);
+  if (!auth) return errorResponse(401, 'Invalid league ID.');
+
+  const snapshot = JSON.parse(league.snapshot_json) as unknown;
+  if (!validateSnapshot(snapshot)) {
+    return errorResponse(500, 'Stored league snapshot is invalid.');
+  }
+
+  const now = Date.now();
+  const lastCheckedAt = timestampValue(snapshot.autoResultsLastCheckedAt);
+  if (now - lastCheckedAt < AUTO_RESULT_REFRESH_MIN_INTERVAL_MS) {
+    return jsonResponse({
+      leagueId,
+      revision: league.revision,
+      schemaVersion: league.schema_version,
+      updatedAt: league.updated_at,
+      role: auth.role,
+      playerId: auth.role === 'player' ? auth.playerId : undefined,
+      playerPresence: playerPresenceFromSnapshot(snapshot),
+      snapshot,
+      lockedFixtureIds: [],
+      throttled: true,
+    });
+  }
+
+  if (!env.API_FOOTBALL_KEY) {
+    return jsonResponse({
+      leagueId,
+      revision: league.revision,
+      schemaVersion: league.schema_version,
+      updatedAt: league.updated_at,
+      role: auth.role,
+      playerId: auth.role === 'player' ? auth.playerId : undefined,
+      playerPresence: playerPresenceFromSnapshot(snapshot),
+      snapshot,
+      lockedFixtureIds: [],
+      skippedReason: 'missing_api_key',
+    });
+  }
+
+  const candidates = snapshot.fixtures.filter(
+    (fixture) =>
+      fixture.status !== 'locked' &&
+      typeof fixture.id === 'string' &&
+      typeof fixture.homeTeam === 'string' &&
+      typeof fixture.awayTeam === 'string' &&
+      typeof fixture.date === 'string' &&
+      canFetchFixtureResult(fixture, now),
+  );
+
+  if (candidates.length === 0) {
+    return jsonResponse({
+      leagueId,
+      revision: league.revision,
+      schemaVersion: league.schema_version,
+      updatedAt: league.updated_at,
+      role: auth.role,
+      playerId: auth.role === 'player' ? auth.playerId : undefined,
+      playerPresence: playerPresenceFromSnapshot(snapshot),
+      snapshot,
+      lockedFixtureIds: [],
+    });
+  }
+
+  snapshot.autoResultsLastCheckedAt = now;
+  snapshot.schemaVersion = league.schema_version;
+  snapshot.exportedAt = now;
+
+  const claimChanges = await writeSnapshotIfRevisionMatches(
+    env,
+    leagueId,
+    league.revision,
+    snapshot,
+    league.schema_version,
+    now,
+  );
+
+  if (claimChanges === 0) {
+    const latestLeague = await getLeague(env, leagueId);
+    if (!latestLeague) return errorResponse(404, 'League not found.');
+    const latestSnapshot = JSON.parse(latestLeague.snapshot_json) as unknown;
+    if (!validateSnapshot(latestSnapshot)) {
+      return errorResponse(500, 'Stored league snapshot is invalid.');
+    }
+
+    return jsonResponse({
+      leagueId,
+      revision: latestLeague.revision,
+      schemaVersion: latestLeague.schema_version,
+      updatedAt: latestLeague.updated_at,
+      role: auth.role,
+      playerId: auth.role === 'player' ? auth.playerId : undefined,
+      playerPresence: playerPresenceFromSnapshot(latestSnapshot),
+      snapshot: latestSnapshot,
+      lockedFixtureIds: [],
+      throttled: true,
+    });
+  }
+
+  const lockedFixtureIds: string[] = [];
+  for (const fixture of candidates) {
+    try {
+      const result = await fetchMatchResultFromApi(
+        fixture.homeTeam as string,
+        fixture.awayTeam as string,
+        fixture.date as string,
+        env.API_FOOTBALL_KEY,
+      );
+      if (!result) continue;
+
+      fixture.status = 'locked';
+      fixture.homeScore = result.homeScore;
+      fixture.awayScore = result.awayScore;
+      recalculateFixtureScores(snapshot, fixture);
+      lockedFixtureIds.push(fixture.id as string);
+    } catch {
+      // A single missing fixture or transient API failure should not block other results.
+    }
+  }
+
+  if (lockedFixtureIds.length === 0) {
+    return jsonResponse({
+      leagueId,
+      revision: league.revision + 1,
+      schemaVersion: league.schema_version,
+      updatedAt: now,
+      role: auth.role,
+      playerId: auth.role === 'player' ? auth.playerId : undefined,
+      playerPresence: playerPresenceFromSnapshot(snapshot),
+      snapshot,
+      lockedFixtureIds,
+      refreshedAt: now,
+    });
+  }
+
+  const finishedAt = Date.now();
+  snapshot.exportedAt = finishedAt;
+
+  const changes = await writeSnapshotIfRevisionMatches(
+    env,
+    leagueId,
+    league.revision + 1,
+    snapshot,
+    league.schema_version,
+    finishedAt,
+  );
+
+  if (changes === 0) {
+    return jsonResponse({
+      error: 'Cloud snapshot changed while refreshing match results.',
+      currentRevision: league.revision + 1,
+    }, { status: 409 });
+  }
+
+  return jsonResponse({
+    leagueId,
+    revision: league.revision + 2,
+    schemaVersion: league.schema_version,
+    updatedAt: finishedAt,
+    role: auth.role,
+    playerId: auth.role === 'player' ? auth.playerId : undefined,
+    playerPresence: playerPresenceFromSnapshot(snapshot),
+    snapshot,
+    lockedFixtureIds,
+    refreshedAt: finishedAt,
   });
 }
 
@@ -696,6 +1113,11 @@ async function route(request: Request, env: Env) {
   const betsMatch = path.match(/^\/api\/leagues\/([A-Z0-9]+)\/bets$/);
   if (betsMatch && request.method === 'PUT') {
     return updatePlayerBet(request, env, betsMatch[1]);
+  }
+
+  const resultsRefreshMatch = path.match(/^\/api\/leagues\/([A-Z0-9]+)\/results\/refresh$/);
+  if (resultsRefreshMatch && request.method === 'POST') {
+    return refreshCompletedResults(request, env, resultsRefreshMatch[1]);
   }
 
   const playerCodesMatch = path.match(/^\/api\/leagues\/([A-Z0-9]+)\/player-codes$/);
