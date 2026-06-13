@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { FixturePanel } from '../components/FixturePanel';
 import { displayStageName, displayTeamName } from '../utils/displayNames';
+import { useSync } from '../sync/syncContextValue';
 import {
   compareFixturesByKickoff,
   fixtureWarsawDateKey,
@@ -47,6 +48,7 @@ function statusBadge(status: string, hasStarted: boolean) {
 }
 
 export function Fixtures() {
+  const { isPlayer, playerId } = useSync();
   const fixtures = useLiveQuery(() => db.fixtures.toArray(), []);
   const allBets = useLiveQuery(() => db.bets.toArray(), []);
   const allOdds = useLiveQuery(() => db.odds.toArray(), []);
@@ -65,6 +67,13 @@ export function Fixtures() {
   for (const b of (allBets ?? [])) {
     betCountMap.set(b.fixtureId, (betCountMap.get(b.fixtureId) ?? 0) + 1);
   }
+  const currentPlayerBetFixtureIds = new Set(
+    playerId
+      ? (allBets ?? [])
+          .filter((bet) => bet.playerId === playerId)
+          .map((bet) => bet.fixtureId)
+      : [],
+  );
   const hitCountMap = new Map<string, number>();
   for (const score of (allScores ?? [])) {
     hitCountMap.set(score.fixtureId, (hitCountMap.get(score.fixtureId) ?? 0) + 1);
@@ -166,6 +175,15 @@ export function Fixtures() {
               const hitCount = hitCountMap.get(f.id) ?? 0;
               const hasFetchedOdds = fixturesWithFetchedOdds.has(f.id);
               const hasStarted = hasFixtureStarted(f, now);
+              const currentPlayerHasBet = currentPlayerBetFixtureIds.has(f.id);
+              const betCountColor =
+                isPlayer && playerId
+                  ? currentPlayerHasBet
+                    ? 'text-green-500'
+                    : 'text-red-500'
+                  : betCount > 0
+                  ? 'text-green-500'
+                  : 'text-gray-300';
               return (
                 <div
                   key={f.id}
@@ -204,8 +222,14 @@ export function Fixtures() {
                     <div className="mt-3 flex items-center justify-between gap-2 sm:mb-0.5 sm:mt-0 sm:shrink-0 sm:justify-end sm:self-end">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span
-                          title={`Zakłady: ${betCount}/${totalPlayers}`}
-                          className={`flex items-center gap-0.5 text-xs ${betCount > 0 ? 'text-green-500' : 'text-gray-300'}`}
+                          title={
+                            isPlayer && playerId
+                              ? currentPlayerHasBet
+                                ? `Twój zakład dodany. Wszystkie zakłady: ${betCount}/${totalPlayers}`
+                                : `Brak Twojego zakładu. Wszystkie zakłady: ${betCount}/${totalPlayers}`
+                              : `Zakłady: ${betCount}/${totalPlayers}`
+                          }
+                          className={`flex items-center gap-0.5 text-xs ${betCountColor}`}
                         >
                           👤
                           {totalPlayers > 0 && (
