@@ -1,4 +1,4 @@
-import { toStoredTeamName } from './displayNames';
+import { teamsMatch } from './teamMatching';
 
 /**
  * Odds fetcher using api-football.com (api-sports.io).
@@ -51,36 +51,6 @@ export interface Match1X2Odds {
   bookmakerId: number;
   bookmakerName: string;
   fetchedAt: number;
-}
-
-// Map of API team name variants → canonical name used in fixtures
-const TEAM_NAME_ALIASES: Record<string, string> = {
-  'bosnia and herzegovina': 'Bosnia & Herzegovina',
-  "cote d'ivoire": 'Ivory Coast',
-  "côte d'ivoire": 'Ivory Coast',
-  'ivory coast': 'Ivory Coast',
-  'cape verde islands': 'Cape Verde',
-  'cape verde': 'Cape Verde',
-  'united states': 'USA',
-  'usa': 'USA',
-  'curacao': 'Curaçao',
-  'curaçao': 'Curaçao',
-  'korea republic': 'South Korea',
-  'republic of korea': 'South Korea',
-  'republic of ireland': 'Ireland',
-  'new zealand': 'New Zealand',
-};
-
-function normalizeTeamName(name: string): string {
-  const canonicalName = toStoredTeamName(name);
-  const lower = canonicalName.toLowerCase().trim();
-  return TEAM_NAME_ALIASES[lower] ?? canonicalName;
-}
-
-function teamsMatch(apiName: string, fixtureName: string): boolean {
-  const a = normalizeTeamName(apiName).toLowerCase();
-  const b = normalizeTeamName(fixtureName).toLowerCase();
-  return a === b || a.includes(b) || b.includes(a);
 }
 
 function addUtcDays(date: string, days: number): string {

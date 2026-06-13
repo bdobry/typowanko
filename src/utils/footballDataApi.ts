@@ -1,5 +1,5 @@
 import { getApiFootballKey, ODDS_API_KEY_STORAGE_KEY } from './oddsApi';
-import { toStoredTeamName } from './displayNames';
+import { teamsMatch } from './teamMatching';
 
 const API_BASE = 'https://v3.football.api-sports.io';
 const WC_LEAGUE_ID = 1; // FIFA World Cup
@@ -12,37 +12,6 @@ export interface MatchResult {
   homeScore: number;
   awayScore: number;
   status: string;
-}
-
-// Map of API team name variants → canonical names used in fixtures
-const TEAM_NAME_ALIASES: Record<string, string> = {
-  'united states': 'USA',
-  'usa': 'USA',
-  "korea republic": 'South Korea',
-  'republic of korea': 'South Korea',
-  "cote d'ivoire": 'Ivory Coast',
-  "côte d'ivoire": 'Ivory Coast',
-  'ivory coast': 'Ivory Coast',
-  'cape verde': 'Cape Verde',
-  'cape verde islands': 'Cape Verde',
-  'bosnia and herzegovina': 'Bosnia & Herzegovina',
-  'bosnia & herzegovina': 'Bosnia & Herzegovina',
-  'curacao': 'Curaçao',
-  'curaçao': 'Curaçao',
-  'new zealand': 'New Zealand',
-  'republic of ireland': 'Ireland',
-};
-
-function normalizeTeamName(name: string): string {
-  const canonicalName = toStoredTeamName(name);
-  const lower = canonicalName.toLowerCase().trim();
-  return TEAM_NAME_ALIASES[lower] ?? canonicalName;
-}
-
-function teamsMatch(apiName: string, fixtureName: string): boolean {
-  const a = normalizeTeamName(apiName).toLowerCase();
-  const b = normalizeTeamName(fixtureName).toLowerCase();
-  return a === b || a.includes(b) || b.includes(a);
 }
 
 function addUtcDays(date: string, days: number): string {

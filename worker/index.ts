@@ -240,18 +240,21 @@ function fixtureSearchDates(date: string) {
 }
 
 const TEAM_NAME_ALIASES: Record<string, string> = {
-  'united states': 'usa',
-  'usa': 'usa',
-  'korea republic': 'south korea',
-  'republic of korea': 'south korea',
-  'cote d ivoire': 'ivory coast',
-  'ivory coast': 'ivory coast',
-  'cape verde islands': 'cape verde',
-  'cape verde': 'cape verde',
   'bosnia and herzegovina': 'bosnia and herzegovina',
+  'bosnia herzegovina': 'bosnia and herzegovina',
+  'cape verde': 'cape verde',
+  'cape verde islands': 'cape verde',
+  'cote d ivoire': 'ivory coast',
   'curacao': 'curacao',
+  'ivory coast': 'ivory coast',
+  'korea republic': 'south korea',
   'new zealand': 'new zealand',
   'republic of ireland': 'ireland',
+  'republic of korea': 'south korea',
+  'turkey': 'turkey',
+  'turkiye': 'turkey',
+  'united states': 'usa',
+  'usa': 'usa',
 };
 
 function normalizeTeamName(name: string) {
