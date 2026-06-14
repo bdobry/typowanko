@@ -21,6 +21,8 @@ import {
   type CloudCredential,
   type PlayerCode,
   type PlayerPresence,
+  type ResultRefreshResponse,
+  type SnapshotResponse,
 } from './api';
 import { mergeHostSnapshotWithCloud } from './merge';
 import {
@@ -91,6 +93,10 @@ function autoResultNoticeMessage(lockedCount: number) {
   return lockedCount === 1
     ? 'Automatycznie pobrano wynik zakończonego meczu.'
     : `Automatycznie pobrano wyniki zakończonych meczów: ${lockedCount}.`;
+}
+
+function autoResultLockedCount(response: SnapshotResponse | ResultRefreshResponse) {
+  return 'lockedFixtureIds' in response ? response.lockedFixtureIds?.length ?? 0 : 0;
 }
 
 function mergePlayerCodes(existing: CloudIds | null, newCodes: PlayerCode[], hostId: string) {
@@ -212,6 +218,22 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setNotice(null);
   }, []);
 
+  const fetchSnapshotWithCompletedResults = useCallback(async (cloudCredential: CloudCredential) => {
+    const snapshotResponse = await fetchLeagueSnapshot(cloudCredential);
+    const now = Date.now();
+    if (now - lastAutoResultRefreshAt.current < 60000) {
+      return snapshotResponse;
+    }
+
+    lastAutoResultRefreshAt.current = now;
+    try {
+      return await refreshCompletedResultsRequest(cloudCredential);
+    } catch (err) {
+      console.warn('Automatic result refresh failed.', err);
+      return snapshotResponse;
+    }
+  }, []);
+
   const loginWithId = useCallback(async (input: string) => {
     const parsed = parseCombinedId(input);
     if (!parsed) {
@@ -222,7 +244,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetchLeagueSnapshot(parsed);
+      const response =
+        parsed.role === 'viewer' || parsed.role === 'player'
+          ? await fetchSnapshotWithCompletedResults(parsed)
+          : await fetchLeagueSnapshot(parsed);
       if (parsed.role === 'viewer' || parsed.role === 'player') {
         setActiveDatabase(getViewerDatabaseName(parsed.leagueId));
       } else {
@@ -244,6 +269,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setCloudIds(parsed.role === 'host' ? { hostId: parsed.combinedId, viewerId: '', playerCodes: [] } : null);
       saveLastSyncedSnapshot(parsed.leagueId, response.snapshot);
       saveStoredSession(toStoredSession(credentialWithPlayerId, response.revision, syncedAt));
+      const lockedCount = autoResultLockedCount(response);
+      if (lockedCount > 0) {
+        setNotice(autoResultNoticeMessage(lockedCount));
+      }
     } catch (err) {
       const message = getErrorMessage(err);
       setError(message);
@@ -251,7 +280,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, []);
+  }, [fetchSnapshotWithCompletedResults]);
 
   const createCloudLeague = useCallback(async () => {
     if (!getSyncApiBase()) {
@@ -304,7 +333,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setNotice(null);
     try {
       if (role === 'viewer' || role === 'player') {
-        const response = await fetchLeagueSnapshot(credential);
+        const response = await fetchSnapshotWithCompletedResults(credential);
         setActiveDatabase(getViewerDatabaseName(credential.leagueId));
         await importSnapshot(response.snapshot);
         await applyPlayerPresence(response.playerPresence);
@@ -317,6 +346,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setLastSyncAt(syncedAt);
         saveLastSyncedSnapshot(credential.leagueId, response.snapshot);
         saveStoredSession(toStoredSession(credentialWithPlayerId, response.revision, syncedAt));
+        const lockedCount = autoResultLockedCount(response);
+        if (lockedCount > 0) {
+          setNotice(autoResultNoticeMessage(lockedCount));
+        }
       } else {
         if (revision == null) {
           throw new Error('Brak lokalnej rewizji sync. Zaloguj się Host ID ponownie.');
@@ -385,7 +418,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, [cloudIds, credential, revision, role]);
+  }, [cloudIds, credential, fetchSnapshotWithCompletedResults, revision, role]);
 
   const markDirty = useCallback(() => {
     if (role !== 'host' || !credential) return;

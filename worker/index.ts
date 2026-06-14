@@ -664,26 +664,40 @@ async function fetchSnapshot(request: Request, env: Env, leagueId: string) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
 
+  let responseLeague = league;
+  let responseSnapshot = snapshot;
   let updatedAt = league.updated_at;
   if (auth.role === 'player') {
     const now = Date.now();
     if (markPlayerOnline(snapshot, auth.playerId, now)) {
-      await env.DB.prepare(
-        'UPDATE leagues SET snapshot_json = ?, updated_at = ? WHERE id = ?',
-      ).bind(JSON.stringify(snapshot), now, league.id).run();
-      updatedAt = now;
+      const result = await env.DB.prepare(
+        'UPDATE leagues SET snapshot_json = ?, updated_at = ? WHERE id = ? AND revision = ?',
+      ).bind(JSON.stringify(snapshot), now, league.id, league.revision).run();
+      if (d1ChangeCount(result) === 0) {
+        const latestLeague = await getLeague(env, leagueId);
+        if (!latestLeague) return errorResponse(404, 'League not found.');
+        const latestSnapshot = JSON.parse(latestLeague.snapshot_json) as unknown;
+        if (!validateSnapshot(latestSnapshot)) {
+          return errorResponse(500, 'Stored league snapshot is invalid.');
+        }
+        responseLeague = latestLeague;
+        responseSnapshot = latestSnapshot;
+        updatedAt = latestLeague.updated_at;
+      } else {
+        updatedAt = now;
+      }
     }
   }
 
   return jsonResponse({
-    leagueId: league.id,
-    revision: league.revision,
-    schemaVersion: league.schema_version,
+    leagueId: responseLeague.id,
+    revision: responseLeague.revision,
+    schemaVersion: responseLeague.schema_version,
     updatedAt,
     role: auth.role,
     playerId: auth.role === 'player' ? auth.playerId : undefined,
-    playerPresence: playerPresenceFromSnapshot(snapshot),
-    snapshot,
+    playerPresence: playerPresenceFromSnapshot(responseSnapshot),
+    snapshot: responseSnapshot,
   });
 }
 
