@@ -33,6 +33,7 @@ import {
   loadLastSyncedSnapshot,
   removeLastSyncedSnapshot,
   saveLastSyncedSnapshot,
+  type TypowankoSnapshot,
 } from './snapshot';
 import {
   SyncContext,
@@ -42,11 +43,13 @@ import {
   type SyncContextValue,
 } from './syncContextValue';
 import { refreshLocalCompletedResults } from '../utils/autoResults';
-import { hasFixtureStarted } from '../utils/fixtureTime';
+import { fixtureAutoResultEligibleAtMs, hasFixtureStarted } from '../utils/fixtureTime';
 
 const SESSION_STORAGE_KEY = 'typowankoCloudSession';
 const AUTO_SYNC_DELAY_MS = 1500;
 const VIEWER_POLL_MS = 30000;
+const AUTO_RESULT_REFRESH_DEBOUNCE_MS = 3 * 60 * 1000;
+const AUTO_RESULT_REFRESH_POLL_MS = 60 * 1000;
 
 function loadStoredSession(): StoredSession | null {
   const raw = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -97,6 +100,15 @@ function autoResultNoticeMessage(lockedCount: number) {
 
 function autoResultLockedCount(response: SnapshotResponse | ResultRefreshResponse) {
   return 'lockedFixtureIds' in response ? response.lockedFixtureIds?.length ?? 0 : 0;
+}
+
+function hasAutoResultCandidate(snapshot: Pick<TypowankoSnapshot, 'fixtures'>, now: number) {
+  return snapshot.fixtures.some(
+    (fixture) =>
+      fixture.status !== 'locked' &&
+      Number.isFinite(fixtureAutoResultEligibleAtMs(fixture)) &&
+      now >= fixtureAutoResultEligibleAtMs(fixture),
+  );
 }
 
 function mergePlayerCodes(existing: CloudIds | null, newCodes: PlayerCode[], hostId: string) {
@@ -221,7 +233,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const fetchSnapshotWithCompletedResults = useCallback(async (cloudCredential: CloudCredential) => {
     const snapshotResponse = await fetchLeagueSnapshot(cloudCredential);
     const now = Date.now();
-    if (now - lastAutoResultRefreshAt.current < 60000) {
+    if (!hasAutoResultCandidate(snapshotResponse.snapshot, now)) {
+      return snapshotResponse;
+    }
+    if (now - lastAutoResultRefreshAt.current < AUTO_RESULT_REFRESH_DEBOUNCE_MS) {
       return snapshotResponse;
     }
 
@@ -438,7 +453,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (syncing || (role === 'host' && pending)) return;
 
     const now = Date.now();
-    if (now - lastAutoResultRefreshAt.current < 60000) return;
+    const localSnapshot = await exportSnapshot();
+    if (!hasAutoResultCandidate(localSnapshot, now)) return;
+    if (now - lastAutoResultRefreshAt.current < AUTO_RESULT_REFRESH_DEBOUNCE_MS) return;
     lastAutoResultRefreshAt.current = now;
 
     try {
@@ -623,7 +640,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       refreshCompletedResultsNow().catch(() => {
         // Background refresh errors are intentionally non-blocking.
       });
-    }, 60000);
+    }, AUTO_RESULT_REFRESH_POLL_MS);
 
     return () => {
       window.clearTimeout(initialRefresh);

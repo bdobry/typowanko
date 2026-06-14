@@ -136,7 +136,7 @@ const API_FOOTBALL_BASE = 'https://v3.football.api-sports.io';
 const WC_LEAGUE_ID = 1;
 const WC_SEASON = 2026;
 const BET_LOCK_MESSAGE = 'Mecz już się rozpoczął. Zakładów nie można już zmieniać.';
-const AUTO_RESULT_REFRESH_MIN_INTERVAL_MS = 60 * 1000;
+const AUTO_RESULT_REFRESH_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const RESULT_FETCH_AFTER_KICKOFF_MS = 2 * 60 * 60 * 1000;
 const FINISHED_STATUSES = new Set(['FT', 'AET', 'PEN']);
 
