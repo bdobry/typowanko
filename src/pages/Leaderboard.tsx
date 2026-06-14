@@ -9,6 +9,7 @@ import {
 } from '../utils/scoring';
 import { useSync } from '../sync/syncContextValue';
 import { PlayerHistory } from '../components/PlayerHistory';
+import { Tooltip } from '../components/Tooltip';
 import { displayTeamName } from '../utils/displayNames';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -42,6 +43,13 @@ function fixtureLabel(event: LeaderboardEvent) {
 
 function scoreTypeLabel(event: LeaderboardEvent) {
   return event.score.pointType === 'outcome' ? 'trafiony W/D/L' : 'dokładny wynik';
+}
+
+function formResultLabel(result: LeaderboardRow['recentForm'][number]['result'], points: number) {
+  if (result === 'upcoming') return 'Najbliższy mecz';
+  if (result === 'none') return 'Brak obstawienia';
+  if (result === 'miss') return 'Nietrafione';
+  return `${result === 'exact' ? 'Dokładny wynik' : 'Trafiony W/D/L'} +${formatPoints(points)} pkt`;
 }
 
 interface ChartHover {
@@ -111,24 +119,28 @@ function FormStreak({ row }: { row: LeaderboardRow }) {
             : entry.result === 'miss'
             ? 'P'
             : '-';
-        const title =
-          `${displayTeamName(entry.fixture.homeTeam)} - ${displayTeamName(entry.fixture.awayTeam)}: ` +
-          (entry.result === 'upcoming'
-            ? 'najbliższy mecz'
-            : entry.result === 'none'
-            ? 'brak obstawienia'
-            : entry.result === 'miss'
-            ? 'nietrafione'
-            : `${entry.result === 'exact' ? 'dokładny wynik' : 'W/D/L'} +${formatPoints(entry.points)} pkt`);
+        const hasBet = entry.betHomeScore != null && entry.betAwayScore != null;
+        const fixtureName = `${displayTeamName(entry.fixture.homeTeam)} - ${displayTeamName(entry.fixture.awayTeam)}`;
 
         return (
-          <span
+          <Tooltip
             key={entry.fixture.id}
-            title={title}
-            className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${className}`}
+            content={
+              <span className="block">
+                <span className="block text-sm font-bold">
+                  {hasBet ? `${entry.betHomeScore}:${entry.betAwayScore}` : '-'} ({fixtureName})
+                </span>
+                <span className="block text-gray-300">{entry.fixture.date}</span>
+                <span className="mt-1 block text-gray-100">{formResultLabel(entry.result, entry.points)}</span>
+              </span>
+            }
           >
-            {label}
-          </span>
+            <span
+              className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${className}`}
+            >
+              {label}
+            </span>
+          </Tooltip>
         );
       })}
     </span>

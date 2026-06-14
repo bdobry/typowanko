@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Bet, type Fixture } from '../db';
 import { FixturePanel } from '../components/FixturePanel';
+import { Tooltip } from '../components/Tooltip';
 import { displayStageName, displayTeamName } from '../utils/displayNames';
 import { useSync } from '../sync/syncContextValue';
 import {
@@ -68,6 +69,42 @@ function oddLabel(odd: number | undefined) {
 
 function isFixtureOngoing(fixture: Pick<Fixture, 'date' | 'utcTime' | 'status'>, now: number) {
   return fixture.status !== 'locked' && hasFixtureStarted(fixture, now);
+}
+
+function resultStatusTooltip(fixture: Fixture, hasStarted: boolean) {
+  if (fixture.status === 'locked') {
+    const score =
+      fixture.homeScore != null && fixture.awayScore != null
+        ? `${fixture.homeScore}:${fixture.awayScore}`
+        : '-';
+    return (
+      <span className="block">
+        <span className="block text-sm font-bold">Wynik zapisany</span>
+        <span className="block text-gray-200">{score}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="block">
+      <span className="block text-sm font-bold">
+        {hasStarted ? 'Wynik w oczekiwaniu' : 'Wynik niedostępny'}
+      </span>
+      <span className="block text-gray-200">
+        {hasStarted
+          ? 'Mecz już się rozpoczął, ale wynik nie jest jeszcze zapisany.'
+          : 'Wynik pojawi się po zakończeniu i zatwierdzeniu meczu.'}
+      </span>
+    </span>
+  );
+}
+
+function pluralizePeople(count: number) {
+  if (count === 1) return 'osoba';
+  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
+    return 'osoby';
+  }
+  return 'osób';
 }
 
 export function Fixtures() {
@@ -460,36 +497,69 @@ export function Fixtures() {
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2 sm:mb-0.5 sm:mt-0 sm:shrink-0 sm:justify-end sm:self-end">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span
-                          title={
-                            isPlayer && playerId
-                              ? currentPlayerHasBet
-                                ? `Twój zakład dodany. Wszystkie zakłady: ${betCount}/${totalPlayers}`
-                                : `Brak Twojego zakładu. Wszystkie zakłady: ${betCount}/${totalPlayers}`
-                              : `Zakłady: ${betCount}/${totalPlayers}`
+                        <Tooltip
+                          focusable={false}
+                          content={
+                            <span className="block">
+                              <span className="block text-sm font-bold">Zakłady</span>
+                              <span className="block text-gray-200">
+                                Obstawiło: {betCount}/{totalPlayers}.
+                              </span>
+                              <span className="block text-gray-400">
+                                Gracze w lidze: {totalPlayers} {pluralizePeople(totalPlayers)}.
+                              </span>
+                              {isPlayer && playerId && (
+                                <span className="mt-1 block text-gray-300">
+                                  {currentPlayerHasBet ? 'Twój zakład jest zapisany.' : 'Brak Twojego zakładu.'}
+                                </span>
+                              )}
+                            </span>
                           }
-                          className={`flex items-center gap-0.5 text-xs ${betCountColor}`}
                         >
-                          👤
-                          {totalPlayers > 0 && (
-                            <span className="font-mono">{betCount}/{totalPlayers}</span>
-                          )}
-                        </span>
-                        {f.status === 'locked' && totalPlayers > 0 && (
-                          <span
-                            title={`Trafienia: ${hitCount}/${totalPlayers}`}
-                            className="flex items-center gap-0.5 text-xs"
-                          >
-                            🎯
-                            <span className="font-mono">{hitCount}/{totalPlayers}</span>
+                          <span className={`flex items-center gap-0.5 text-xs ${betCountColor}`}>
+                            👤
+                            {totalPlayers > 0 && (
+                              <span className="font-mono">{betCount}/{totalPlayers}</span>
+                            )}
                           </span>
+                        </Tooltip>
+                        {f.status === 'locked' && totalPlayers > 0 && (
+                          <Tooltip
+                            focusable={false}
+                            content={
+                              <span className="block">
+                                <span className="block text-sm font-bold">Trafienia</span>
+                                <span className="block text-gray-200">
+                                  Trafiło: {hitCount}/{totalPlayers}.
+                                </span>
+                                <span className="block text-gray-400">
+                                  Gracze w lidze: {totalPlayers} {pluralizePeople(totalPlayers)}.
+                                </span>
+                              </span>
+                            }
+                          >
+                            <span className="flex items-center gap-0.5 text-xs">
+                              🎯
+                              <span className="font-mono">{hitCount}/{totalPlayers}</span>
+                            </span>
+                          </Tooltip>
                         )}
                         {hasFetchedOdds && (
-                          <span title="Kursy pobrane przez hosta" className="text-blue-500">
-                            📊
-                          </span>
+                          <Tooltip
+                            focusable={false}
+                            content={
+                              <span className="block">
+                                <span className="block text-sm font-bold">Kursy</span>
+                                <span className="block text-gray-200">Kursy zostały pobrane przez hosta.</span>
+                              </span>
+                            }
+                          >
+                            <span className="text-blue-500">📊</span>
+                          </Tooltip>
                         )}
-                        {statusBadge(f.status, hasStarted)}
+                        <Tooltip focusable={false} content={resultStatusTooltip(f, hasStarted)}>
+                          {statusBadge(f.status, hasStarted)}
+                        </Tooltip>
                       </div>
                       <span className={`text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>›</span>
                     </div>

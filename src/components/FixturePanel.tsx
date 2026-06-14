@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Bet, type Fixture, type Odd } from '../db';
+import { Tooltip } from './Tooltip';
 import { recalcFixture } from '../utils/scoring';
 import { fetchAllOdds, getApiFootballKey } from '../utils/oddsApi';
 import { fetchMatchResult } from '../utils/footballDataApi';
@@ -152,7 +153,6 @@ export function FixturePanel({ id }: { id: string }) {
   const oddsMap = new Map<string, number>(
     (odds ?? []).map((o) => [`${o.homeScore}:${o.awayScore}`, o.odd])
   );
-
   const betsMap = new Map((bets ?? []).map((b) => [b.playerId, b]));
   const scoresMap = new Map((scores ?? []).map((s) => [s.playerId, s]));
   const playerNameById = new Map((players ?? []).map((p) => [p.id, p.name]));
@@ -782,27 +782,54 @@ export function FixturePanel({ id }: { id: string }) {
                       const betEntry = betScoreMap.get(key);
                       const isBet = betEntry != null && betEntry.names.length > 0;
                       const isCurrentPlayerBet = betEntry?.hasCurrentPlayer ?? false;
+                      const cell = (
+                        <span
+                          className={`inline-flex w-14 justify-center rounded px-1.5 py-0.5 font-mono ${
+                            isResult
+                              ? 'bg-green-100 text-green-700 font-bold'
+                              : isCurrentPlayerBet
+                              ? 'bg-gray-300 text-gray-900 font-bold ring-1 ring-gray-400'
+                              : isBet
+                              ? 'bg-gray-50 text-gray-500 font-semibold ring-1 ring-gray-100'
+                              : odd
+                              ? 'text-gray-700'
+                              : 'text-gray-300'
+                          }`}
+                        >
+                          {odd ? odd.toFixed(2) : '–'}
+                        </span>
+                      );
                       return (
                         <td
                           key={h}
-                          title={isBet ? `Obstawione przez: ${betEntry.names.join(', ')}` : undefined}
                           className="px-1 py-0.5 text-center"
                         >
-                          <span
-                            className={`inline-flex w-14 justify-center rounded px-1.5 py-0.5 font-mono ${
-                              isResult
-                                ? 'bg-green-100 text-green-700 font-bold'
-                                : isCurrentPlayerBet
-                                ? 'bg-gray-300 text-gray-900 font-bold ring-1 ring-gray-400'
-                                : isBet
-                                ? 'bg-gray-50 text-gray-500 font-semibold ring-1 ring-gray-100'
-                                : odd
-                                ? 'text-gray-700'
-                                : 'text-gray-300'
-                            }`}
-                          >
-                            {odd ? odd.toFixed(2) : '–'}
-                          </span>
+                          {isBet || isResult ? (
+                            <Tooltip
+                              content={
+                                <span className="block">
+                                  <span className="block text-sm font-bold">
+                                    Wynik {h}:{a}
+                                  </span>
+                                  <span className="block text-gray-200">
+                                    {odd ? `Kurs ${odd.toFixed(2)}` : 'Brak kursu'}
+                                  </span>
+                                  {isBet && (
+                                    <span className="mt-1 block text-gray-300">
+                                      Obstawione przez: {betEntry.names.join(', ')}
+                                    </span>
+                                  )}
+                                  {isResult && (
+                                    <span className="mt-1 block text-green-200">To jest wynik meczu.</span>
+                                  )}
+                                </span>
+                              }
+                            >
+                              {cell}
+                            </Tooltip>
+                          ) : (
+                            cell
+                          )}
                         </td>
                       );
                     })}

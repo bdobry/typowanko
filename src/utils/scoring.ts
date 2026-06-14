@@ -103,6 +103,8 @@ export interface LeaderboardFormEntry {
   fixture: Fixture;
   result: 'upcoming' | 'exact' | 'outcome' | 'miss' | 'none';
   points: number;
+  betHomeScore?: number;
+  betAwayScore?: number;
 }
 
 export interface LeaderboardTimelinePoint {
@@ -174,6 +176,7 @@ function buildRows(
     scoresByPlayerId.set(score.playerId, entries);
   }
   const betKeySet = new Set(bets.map((bet) => `${bet.playerId}:${bet.fixtureId}`));
+  const betByPlayerFixture = new Map(bets.map((bet) => [`${bet.playerId}:${bet.fixtureId}`, bet]));
 
   return sortRows(
     players.map((player) => {
@@ -188,11 +191,15 @@ function buildRows(
         outcomeHits: history.filter((score) => score.pointType === 'outcome').length,
         lastMatchPoints: roundPoints(lastMatchPointsByPlayerId.get(player.id) ?? 0),
         recentForm: recentFixtures.map((fixture) => {
+          const bet = betByPlayerFixture.get(`${player.id}:${fixture.id}`);
+
           if (fixture.status !== 'locked') {
             return {
               fixture,
               result: 'upcoming' as const,
               points: 0,
+              betHomeScore: bet?.homeScore,
+              betAwayScore: bet?.awayScore,
             };
           }
 
@@ -202,6 +209,8 @@ function buildRows(
             fixture,
             result: score?.pointType === 'outcome' ? 'outcome' : score ? 'exact' : hasBet ? 'miss' : 'none',
             points: roundPoints(score?.points ?? 0),
+            betHomeScore: bet?.homeScore,
+            betAwayScore: bet?.awayScore,
           };
         }),
       };

@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { ReactNode } from 'react';
 import { db, type Bet, type Fixture, type Player } from '../db';
+import { Tooltip } from './Tooltip';
 import { displayTeamName } from '../utils/displayNames';
 import { getLeaderboardData } from '../utils/scoring';
 import { compareFixturesByKickoff } from '../utils/fixtureTime';
@@ -187,12 +188,13 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
               label={
                 <span className="inline-flex items-center gap-1">
                   Średnie ryzyko
-                  <span
-                    title="Średni kurs wszystkich obstawień z dostępnym kursem. Miejsce w rogu liczone jest po średnim kursie dokładnego wyniku: wyższe ryzyko daje wyższe miejsce."
-                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-gray-300 text-[9px] text-gray-500"
+                  <Tooltip
+                    content="Średni kurs wszystkich obstawień z dostępnym kursem. W rogu widzisz swoje miejsce na tle innych: wyższe ryzyko daje wyższe miejsce."
                   >
-                    ?
-                  </span>
+                    <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-gray-300 text-[9px] text-gray-500">
+                      ?
+                    </span>
+                  </Tooltip>
                 </span>
               }
               rankLabel={riskRankLabel}
