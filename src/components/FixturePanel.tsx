@@ -8,8 +8,10 @@ import { fetchMatchResult } from '../utils/footballDataApi';
 import { useSync } from '../sync/syncContextValue';
 import { displayTeamName, toStoredTeamName } from '../utils/displayNames';
 import { hasFixtureStarted } from '../utils/fixtureTime';
+import { formatPlayerName } from '../utils/playerNames';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
+const EMPTY_LEADER_IDS = new Set<string>();
 
 function useCurrentTime() {
   const [now, setNow] = useState(() => Date.now());
@@ -113,7 +115,13 @@ function PlayerBetForm({
   );
 }
 
-export function FixturePanel({ id }: { id: string }) {
+export function FixturePanel({
+  id,
+  leaderIds = EMPTY_LEADER_IDS,
+}: {
+  id: string;
+  leaderIds?: ReadonlySet<string>;
+}) {
   const { isViewer, isPlayer, playerId, markDirty } = useSync();
   const fixture = useLiveQuery(() => db.fixtures.get(id), [id]);
   const players = useLiveQuery(() => db.players.orderBy('name').toArray(), []);
@@ -155,7 +163,7 @@ export function FixturePanel({ id }: { id: string }) {
   );
   const betsMap = new Map((bets ?? []).map((b) => [b.playerId, b]));
   const scoresMap = new Map((scores ?? []).map((s) => [s.playerId, s]));
-  const playerNameById = new Map((players ?? []).map((p) => [p.id, p.name]));
+  const playerNameById = new Map((players ?? []).map((p) => [p.id, formatPlayerName(p, leaderIds)]));
   const betScoreMap = new Map<string, { names: string[]; hasCurrentPlayer: boolean }>();
   for (const bet of bets ?? []) {
     const key = `${bet.homeScore}:${bet.awayScore}`;
@@ -566,7 +574,7 @@ export function FixturePanel({ id }: { id: string }) {
             >
               <option value="">Wybierz gracza…</option>
               {players?.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>{formatPlayerName(p, leaderIds)}</option>
               ))}
             </select>
             <span className="text-sm text-gray-500">{displayTeamName(fixture.homeTeam)}</span>
@@ -615,7 +623,7 @@ export function FixturePanel({ id }: { id: string }) {
                   }`}
                 >
                   <span className="flex-1 text-gray-900">
-                    {p.name}
+                    {formatPlayerName(p, leaderIds)}
                     {p.id === playerId && (
                       <span className="text-[10px] text-blue-600 bg-blue-100 rounded-full px-2 py-0.5 ml-2">
                         Ty

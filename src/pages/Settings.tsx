@@ -13,6 +13,8 @@ import {
   getApiFootballKey,
 } from '../utils/oddsApi';
 import { useSync } from '../sync/syncContextValue';
+import { getLeaderboardData } from '../utils/scoring';
+import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 
 const ENV_API_FOOTBALL_KEY = (import.meta.env.VITE_API_FOOTBALL_KEY as string | undefined) ?? '';
 
@@ -36,6 +38,7 @@ export function Settings() {
     clearCloudSession,
   } = useSync();
   const players = useLiveQuery(() => db.players.toArray(), []);
+  const leaderboard = useLiveQuery(() => getLeaderboardData(), []);
   const [syncActionError, setSyncActionError] = useState<string | null>(null);
   const [oddsApiKey, setOddsApiKey] = useState(
     () => localStorage.getItem(ODDS_API_KEY_STORAGE_KEY) ?? '',
@@ -152,7 +155,8 @@ export function Settings() {
     await navigator.clipboard?.writeText(value);
   }
 
-  const playerNameById = new Map((players ?? []).map((player) => [player.id, player.name]));
+  const leaderIds = leaderIdsFromRows(leaderboard?.board);
+  const playerNameById = new Map((players ?? []).map((player) => [player.id, formatPlayerName(player, leaderIds)]));
   const currentPlayerName = credential?.playerId
     ? playerNameById.get(credential.playerId)
     : null;

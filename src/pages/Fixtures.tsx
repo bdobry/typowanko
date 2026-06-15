@@ -5,6 +5,7 @@ import { FixturePanel } from '../components/FixturePanel';
 import { Tooltip } from '../components/Tooltip';
 import { displayStageName, displayTeamName } from '../utils/displayNames';
 import { useSync } from '../sync/syncContextValue';
+import { getLeaderboardData } from '../utils/scoring';
 import {
   compareFixturesByKickoff,
   fixtureKickoffMs,
@@ -13,6 +14,7 @@ import {
   formatFixtureTimeInWarsaw,
   hasFixtureStarted,
 } from '../utils/fixtureTime';
+import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 
 const NEXT_24H_MS = 24 * 60 * 60 * 1000;
 
@@ -115,6 +117,7 @@ export function Fixtures() {
   const allMatchOdds = useLiveQuery(() => db.matchOdds.toArray(), []);
   const allScores = useLiveQuery(() => db.scores.toArray(), []);
   const players = useLiveQuery(() => db.players.toArray(), []);
+  const leaderboard = useLiveQuery(() => getLeaderboardData(), []);
 
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'locked'>('all');
   const [group, setGroup] = useState<string>('all');
@@ -122,6 +125,7 @@ export function Fixtures() {
   const fixtureRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const now = useCurrentTime();
   const sortedPlayers = [...(players ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'pl-PL'));
+  const leaderIds = leaderIdsFromRows(leaderboard?.board);
 
   // Build per-fixture lookup sets
   const betByPlayerFixture = new Map<string, Bet>();
@@ -240,7 +244,7 @@ export function Fixtures() {
             onClick={() => openFixture(fixtureId)}
             className="inline-flex items-center rounded bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
           >
-            <span className="max-w-28 truncate">{player.name}</span>
+            <span className="max-w-28 truncate">{formatPlayerName(player, leaderIds)}</span>
           </button>
         );
       }
@@ -250,7 +254,7 @@ export function Fixtures() {
           key={player.id}
           className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-1 text-xs text-green-700"
         >
-          <span className="max-w-28 truncate">{player.name}</span>
+          <span className="max-w-28 truncate">{formatPlayerName(player, leaderIds)}</span>
           <span className="font-mono font-semibold">{betScore(bet)}</span>
           <span className="text-[10px] font-medium text-green-600">
             {oddLabel(exactOddByBetKey.get(betOddsKey(bet)))}
@@ -381,7 +385,7 @@ export function Fixtures() {
                         }`}
                       >
                         <span className="min-w-0 truncate">
-                          {player.name}
+                          {formatPlayerName(player, leaderIds)}
                           {isCurrentPlayer && (
                             <span className="ml-1 text-[10px] font-semibold text-blue-600">Ty</span>
                           )}
@@ -566,7 +570,7 @@ export function Fixtures() {
                   </button>
                   {isExpanded && (
                     <div className="border-t border-gray-100 bg-gray-50 px-4 pb-4">
-                      <FixturePanel id={f.id} />
+                      <FixturePanel id={f.id} leaderIds={leaderIds} />
                     </div>
                   )}
                 </div>

@@ -2,6 +2,8 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useSync } from '../sync/syncContextValue';
+import { getLeaderboardData } from '../utils/scoring';
+import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 
 const navItems = [
   { to: '/fixtures', label: '⚽ Mecze' },
@@ -16,9 +18,11 @@ export function Layout() {
     () => playerId ? db.players.get(playerId) : undefined,
     [playerId],
   );
+  const leaderboard = useLiveQuery(() => getLeaderboardData(), []);
+  const leaderIds = leaderIdsFromRows(leaderboard?.board);
   const accountLabel =
     role === 'player'
-      ? currentPlayer?.name ?? 'Gracz'
+      ? currentPlayer ? formatPlayerName(currentPlayer, leaderIds) : 'Gracz'
       : role === 'viewer'
       ? 'Gość'
       : 'Host';

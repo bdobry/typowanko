@@ -5,6 +5,7 @@ import { Tooltip } from './Tooltip';
 import { displayTeamName } from '../utils/displayNames';
 import { getLeaderboardData } from '../utils/scoring';
 import { compareFixturesByKickoff } from '../utils/fixtureTime';
+import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 
 function formatLastOnline(value?: number) {
   if (!value) return 'brak danych';
@@ -104,6 +105,7 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
 
   const displayedPlayer = currentPlayer ?? player;
   const leaderboardRow = leaderboard?.board.find((row) => row.player.id === player.id);
+  const leaderIds = leaderIdsFromRows(leaderboard?.board);
   const rankLabel = leaderboard && leaderboardRow
     ? `${leaderboardRow.currentPosition}/${leaderboard.board.length}`
     : '–/–';
@@ -165,7 +167,7 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
       >
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
           <div>
-            <h2 className="font-semibold text-gray-900">Historia zakładów — {displayedPlayer.name}</h2>
+            <h2 className="font-semibold text-gray-900">Historia zakładów — {formatPlayerName(displayedPlayer, leaderIds)}</h2>
             <p className="text-xs text-gray-400 mt-0.5">
               Ostatnio online: {formatLastOnline(displayedPlayer.lastOnlineAt)}
             </p>

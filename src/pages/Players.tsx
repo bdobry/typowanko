@@ -4,14 +4,18 @@ import { db, type Player } from '../db';
 import { nanoid } from '../utils/nanoid';
 import { useSync } from '../sync/syncContextValue';
 import { PlayerHistory } from '../components/PlayerHistory';
+import { getLeaderboardData } from '../utils/scoring';
+import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 
 export function Players() {
   const { isViewer, markDirty } = useSync();
   const players = useLiveQuery(() => db.players.orderBy('name').toArray(), []);
+  const leaderboard = useLiveQuery(() => getLeaderboardData(), []);
   const [name, setName] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [historyPlayer, setHistoryPlayer] = useState<Player | null>(null);
+  const leaderIds = leaderIdsFromRows(leaderboard?.board);
 
   async function addPlayer(e: React.FormEvent) {
     e.preventDefault();
@@ -107,7 +111,7 @@ export function Players() {
                 onClick={() => setHistoryPlayer(p)}
                 className="flex-1 text-left text-gray-900 hover:text-green-700 transition-colors"
               >
-                {p.name}
+                {formatPlayerName(p, leaderIds)}
               </button>
                 {!isViewer && (
                   <>

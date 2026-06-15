@@ -1,16 +1,20 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { Player } from '../db';
+import type { Fixture, Player } from '../db';
 import {
   getLeaderboardData,
   type LeaderboardData,
-  type LeaderboardEvent,
+  type LeaderboardEventGroup,
+  type LeaderboardFormEntry,
+  type LeaderboardMatchPoints,
   type LeaderboardRow,
+  type LeaderboardStreak,
 } from '../utils/scoring';
 import { useSync } from '../sync/syncContextValue';
 import { PlayerHistory } from '../components/PlayerHistory';
 import { Tooltip } from '../components/Tooltip';
 import { displayTeamName } from '../utils/displayNames';
+import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 const CHART_COLORS = [
@@ -37,19 +41,55 @@ function shortDate(date: string) {
   });
 }
 
-function fixtureLabel(event: LeaderboardEvent) {
-  return `${displayTeamName(event.fixture.homeTeam)} – ${displayTeamName(event.fixture.awayTeam)}`;
+function fixtureTeamsLabel(fixture: Pick<Fixture, 'homeTeam' | 'awayTeam'>) {
+  return `${displayTeamName(fixture.homeTeam)} – ${displayTeamName(fixture.awayTeam)}`;
 }
 
-function scoreTypeLabel(event: LeaderboardEvent) {
-  return event.score.pointType === 'outcome' ? 'trafiony W/D/L' : 'dokładny wynik';
+function fixtureLabel(event: LeaderboardEventGroup) {
+  return fixtureTeamsLabel(event.fixture);
 }
 
-function formResultLabel(result: LeaderboardRow['recentForm'][number]['result'], points: number) {
+function fixtureResultLabel(event: LeaderboardEventGroup) {
+  if (event.fixture.homeScore == null || event.fixture.awayScore == null) {
+    return fixtureLabel(event);
+  }
+
+  return `${displayTeamName(event.fixture.homeTeam)} ${event.fixture.homeScore}:${event.fixture.awayScore} ${displayTeamName(event.fixture.awayTeam)}`;
+}
+
+function fixtureScoreLabel(fixture: Fixture) {
+  if (fixture.homeScore == null || fixture.awayScore == null) {
+    return fixtureTeamsLabel(fixture);
+  }
+
+  return `${displayTeamName(fixture.homeTeam)} ${fixture.homeScore}:${fixture.awayScore} ${displayTeamName(fixture.awayTeam)}`;
+}
+
+function scoreTypeLabel(event: LeaderboardEventGroup) {
+  return event.pointType === 'outcome' ? 'trafiony 1X2' : 'dokładny wynik';
+}
+
+function formResultLabel(result: LeaderboardFormEntry['result'], points: number) {
   if (result === 'upcoming') return 'Najbliższy mecz';
   if (result === 'none') return 'Brak obstawienia';
   if (result === 'miss') return 'Nietrafione';
   return `${result === 'exact' ? 'Dokładny wynik' : 'Trafiony W/D/L'} +${formatPoints(points)} pkt`;
+}
+
+function formEntryVisual(result: LeaderboardFormEntry['result']) {
+  if (result === 'upcoming') return { className: 'bg-gray-200 text-gray-600', label: '?' };
+  if (result === 'exact') return { className: 'bg-green-600 text-white', label: 'Z' };
+  if (result === 'outcome') return { className: 'bg-yellow-300 text-yellow-900', label: 'R' };
+  if (result === 'miss') return { className: 'bg-red-500 text-white', label: 'P' };
+  return { className: 'bg-gray-200 text-gray-500', label: '-' };
+}
+
+function matchCountLabel(count: number) {
+  if (count === 1) return '1 mecz';
+  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
+    return `${count} mecze`;
+  }
+  return `${count} meczów`;
 }
 
 interface ChartHover {
@@ -91,34 +131,15 @@ function LastMatchPoints({ value, hasLastFixture }: { value: number; hasLastFixt
   );
 }
 
-function FormStreak({ row }: { row: LeaderboardRow }) {
-  if (row.recentForm.length === 0) {
+function FormDots({ entries }: { entries: LeaderboardFormEntry[] }) {
+  if (entries.length === 0) {
     return <span className="text-gray-300 font-mono">-</span>;
   }
 
   return (
     <span className="inline-flex items-center justify-center gap-1">
-      {row.recentForm.map((entry) => {
-        const className =
-          entry.result === 'upcoming'
-            ? 'bg-gray-200 text-gray-600'
-            : entry.result === 'exact'
-            ? 'bg-green-600 text-white'
-            : entry.result === 'outcome'
-            ? 'bg-yellow-300 text-yellow-900'
-            : entry.result === 'miss'
-            ? 'bg-red-500 text-white'
-            : 'bg-gray-200 text-gray-500';
-        const label =
-          entry.result === 'upcoming'
-            ? '?'
-            : entry.result === 'exact'
-            ? 'Z'
-            : entry.result === 'outcome'
-            ? 'R'
-            : entry.result === 'miss'
-            ? 'P'
-            : '-';
+      {entries.map((entry) => {
+        const { className, label } = formEntryVisual(entry.result);
         const hasBet = entry.betHomeScore != null && entry.betAwayScore != null;
         const fixtureName = `${displayTeamName(entry.fixture.homeTeam)} - ${displayTeamName(entry.fixture.awayTeam)}`;
 
@@ -147,7 +168,130 @@ function FormStreak({ row }: { row: LeaderboardRow }) {
   );
 }
 
-function ProgressChart({ data, rows }: { data: LeaderboardData['timeline']; rows: LeaderboardRow[] }) {
+function FormStreak({ row }: { row: LeaderboardRow }) {
+  return <FormDots entries={row.recentForm} />;
+}
+
+function StreakCard({
+  title,
+  streak,
+  leaderIds,
+}: {
+  title: string;
+  streak: LeaderboardStreak;
+  leaderIds: ReadonlySet<string>;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">{title}</h3>
+        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-bold text-gray-700 ring-1 ring-gray-200">
+          {streak.bestLength > 0 ? matchCountLabel(streak.bestLength) : '-'}
+        </span>
+      </div>
+      {streak.bestLength > 0 ? (
+        <div className="mt-3 space-y-2">
+          {streak.winners.map((winner) => (
+            <div key={winner.player.id} className="flex min-w-0 items-center justify-between gap-3">
+              <span className="min-w-0 truncate text-sm font-semibold text-gray-900">
+                {formatPlayerName(winner.player, leaderIds)}
+              </span>
+              <span className="shrink-0">
+                <FormDots entries={winner.entries} />
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-gray-400">Brak serii.</p>
+      )}
+    </div>
+  );
+}
+
+function hitCountLabel(count: number) {
+  if (count === 1) return '1 trafienie';
+  return `${count} trafień`;
+}
+
+function MatchPointsRow({ entry }: { entry: LeaderboardMatchPoints }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 py-2">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold text-gray-900" title={fixtureTeamsLabel(entry.fixture)}>
+          {fixtureScoreLabel(entry.fixture)}
+        </div>
+        <div className="mt-0.5 text-xs text-gray-400">
+          {shortDate(entry.fixture.date)} · {hitCountLabel(entry.hitCount)}
+          {entry.hitCount > 0 && (
+            <span>
+              {' '}· dokładne {entry.exactHitCount} · 1X2 {entry.outcomeHitCount}
+            </span>
+          )}
+        </div>
+      </div>
+      <span className={`shrink-0 text-sm font-bold ${entry.totalPoints > 0 ? 'text-green-700' : 'text-gray-400'}`}>
+        {formatPoints(entry.totalPoints)} pkt
+      </span>
+    </div>
+  );
+}
+
+function MatchStatsSection({ stats }: { stats: LeaderboardData['matchStats'] }) {
+  if (stats.topScoring.length === 0 && stats.zeroHitFixtures.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Mecze w liczbach</h2>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najbardziej punktodajny mecz</h3>
+            <span className="text-[10px] font-semibold text-gray-400">{stats.topScoring.length > 1 ? 'ex aequo' : ''}</span>
+          </div>
+          {stats.topScoring.length > 0 ? (
+            <div className="divide-y divide-gray-100">
+              {stats.topScoring.map((entry) => (
+                <MatchPointsRow key={entry.fixture.id} entry={entry} />
+              ))}
+            </div>
+          ) : (
+            <p className="py-4 text-sm text-gray-400">Brak punktowanych meczów.</p>
+          )}
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najmniej punktodajne mecze</h3>
+            <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600 ring-1 ring-red-100">
+              0 trafień
+            </span>
+          </div>
+          {stats.zeroHitFixtures.length > 0 ? (
+            <div className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+              {stats.zeroHitFixtures.map((entry) => (
+                <MatchPointsRow key={entry.fixture.id} entry={entry} />
+              ))}
+            </div>
+          ) : (
+            <p className="py-4 text-sm text-gray-400">Nie ma jeszcze meczu bez trafienia.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProgressChart({
+  data,
+  rows,
+  leaderIds,
+}: {
+  data: LeaderboardData['timeline'];
+  rows: LeaderboardRow[];
+  leaderIds: ReadonlySet<string>;
+}) {
   const [hoveredPoint, setHoveredPoint] = useState<ChartHover | null>(null);
 
   if (data.length === 0) {
@@ -262,7 +406,7 @@ function ProgressChart({ data, rows }: { data: LeaderboardData['timeline']; rows
                       key,
                       x: point.x,
                       y: point.y,
-                      playerName: row.player.name,
+                      playerName: formatPlayerName(row.player, leaderIds),
                       total: point.total,
                       fixtureName,
                       date: shortDate(point.point.fixture.date),
@@ -280,7 +424,7 @@ function ProgressChart({ data, rows }: { data: LeaderboardData['timeline']; rows
                         strokeWidth={isHovered ? 1.5 : 1}
                         tabIndex={0}
                         className="cursor-pointer outline-none"
-                        aria-label={`${row.player.name}: ${formatPoints(point.total)} punktów po meczu ${fixtureName}`}
+                        aria-label={`${formatPlayerName(row.player, leaderIds)}: ${formatPoints(point.total)} punktów po meczu ${fixtureName}`}
                         onMouseEnter={() => setHoveredPoint(hover)}
                         onMouseLeave={() => setHoveredPoint(null)}
                         onFocus={() => setHoveredPoint(hover)}
@@ -331,7 +475,7 @@ function ProgressChart({ data, rows }: { data: LeaderboardData['timeline']; rows
                 className="inline-block h-2.5 w-2.5 rounded-full"
                 style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
               />
-              {row.player.name}
+              {formatPlayerName(row.player, leaderIds)}
             </span>
           ))}
         </div>
@@ -347,12 +491,13 @@ export function Leaderboard() {
 
   if (!data) return <div className="text-gray-400 text-center py-12">Ładowanie…</div>;
 
+  const leaderIds = leaderIdsFromRows(data.board);
   const fixtureById = new Map(data.timeline.map((point) => [point.fixture.id, point.fixture]));
   const bestHits = data.board
     .flatMap(({ player, history }) =>
       history.map((score) => ({
         ...score,
-        playerName: player.name,
+        playerName: formatPlayerName(player, leaderIds),
         fixture: fixtureById.get(score.fixtureId),
       })),
     )
@@ -442,7 +587,7 @@ export function Leaderboard() {
                           onClick={() => setHistoryPlayer(row.player)}
                           className="text-left font-semibold text-gray-900 hover:text-green-700 transition-colors"
                         >
-                          {row.player.name}
+                          {formatPlayerName(row.player, leaderIds)}
                         </button>
                         {row.player.id === playerId && (
                           <span className="ml-2 text-[10px] text-blue-600 bg-blue-100 rounded-full px-2 py-0.5">
@@ -476,11 +621,16 @@ export function Leaderboard() {
               </tbody>
             </table>
           </div>
+          <div className="grid gap-3 border-t border-gray-100 p-4 md:grid-cols-3">
+            <StreakCard title="Najdłuższa seria punktowa" streak={data.streaks.points} leaderIds={leaderIds} />
+            <StreakCard title="Najdłuższa seria dokładnych" streak={data.streaks.exact} leaderIds={leaderIds} />
+            <StreakCard title="Najdłuższa seria pudeł" streak={data.streaks.miss} leaderIds={leaderIds} />
+          </div>
         </div>
       )}
 
       {data.board.length > 0 && (
-        <ProgressChart data={data.timeline} rows={data.board} />
+        <ProgressChart data={data.timeline} rows={data.board} leaderIds={leaderIds} />
       )}
 
       {/* Recent events */}
@@ -488,28 +638,47 @@ export function Leaderboard() {
         <div>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Ostatnie zdarzenia</h2>
           <div className="space-y-1.5">
-            {data.recentEvents.map((event) => (
-              <div
-                key={event.id}
-                className="text-sm bg-white rounded-lg px-4 py-2.5 flex gap-3 items-center border border-gray-200"
-              >
-                <span className="text-xs text-gray-400 w-16 shrink-0">{shortDate(event.fixture.date)}</span>
-                <span className="text-gray-700 flex-1 min-w-0">
-                  <span className="font-medium text-gray-900">{event.player.name}</span>
-                  {event.player.id === playerId && (
-                    <span className="ml-2 text-[10px] text-blue-600 bg-blue-100 rounded-full px-2 py-0.5">
-                      ty
-                    </span>
-                  )}
-                  <span className="text-gray-500"> · {scoreTypeLabel(event)} · </span>
-                  <span className="truncate">{fixtureLabel(event)}</span>
-                </span>
-                <span className="hidden sm:inline text-gray-500 font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">
-                  {event.score.betHomeScore}:{event.score.betAwayScore} / {event.score.resultHomeScore}:{event.score.resultAwayScore}
-                </span>
-                <span className="text-green-600 font-bold shrink-0">+{formatPoints(event.score.points)}</span>
-              </div>
-            ))}
+            {data.recentEvents.map((event) => {
+              const groupPoints = event.events[0]?.score.points ?? 0;
+
+              return (
+                <div
+                  key={event.id}
+                  className="text-sm bg-white rounded-lg px-4 py-3 flex gap-3 items-start border border-gray-200"
+                >
+                  <span className="text-xs text-gray-400 w-16 shrink-0">{shortDate(event.fixture.date)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-700">
+                      <span className="font-medium text-gray-900">{fixtureResultLabel(event)}</span>
+                      <span className="text-gray-500">· {scoreTypeLabel(event)}</span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                        {event.events.length} {event.events.length === 1 ? 'gracz' : 'graczy'}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                      {event.events.map((entry) => (
+                        <span key={entry.id} className="inline-flex min-w-0 items-center gap-1 text-xs">
+                          <span className="max-w-32 truncate font-medium text-gray-900 sm:max-w-44">
+                            {formatPlayerName(entry.player, leaderIds)}
+                          </span>
+                          {entry.player.id === playerId && (
+                            <span className="text-[10px] text-blue-600 bg-blue-100 rounded-full px-1.5 py-0.5">
+                              ty
+                            </span>
+                          )}
+                          <span className="font-mono font-semibold text-gray-500">
+                            {entry.score.betHomeScore}:{entry.score.betAwayScore}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <span className="w-16 shrink-0 text-right text-green-600 font-bold">
+                    +{formatPoints(groupPoints)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : (
@@ -581,6 +750,10 @@ export function Leaderboard() {
             })}
           </div>
         </div>
+      )}
+
+      {data.board.length > 0 && (
+        <MatchStatsSection stats={data.matchStats} />
       )}
     </div>
   );

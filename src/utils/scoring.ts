@@ -116,8 +116,32 @@ export interface LeaderboardTimelinePoint {
 export interface LeaderboardEvent {
   id: string;
   player: Player;
-  fixture: Fixture;
   score: StoredScoreEntry;
+}
+
+export interface LeaderboardEventGroup {
+  id: string;
+  fixture: Fixture;
+  pointType: 'exact' | 'outcome';
+  events: LeaderboardEvent[];
+}
+
+export interface LeaderboardStreakWinner {
+  player: Player;
+  entries: LeaderboardFormEntry[];
+}
+
+export interface LeaderboardStreak {
+  bestLength: number;
+  winners: LeaderboardStreakWinner[];
+}
+
+export interface LeaderboardMatchPoints {
+  fixture: Fixture;
+  totalPoints: number;
+  hitCount: number;
+  exactHitCount: number;
+  outcomeHitCount: number;
 }
 
 export interface LeaderboardData {
@@ -126,7 +150,16 @@ export interface LeaderboardData {
   totalFixtures: number;
   lastFixture: Fixture | null;
   timeline: LeaderboardTimelinePoint[];
-  recentEvents: LeaderboardEvent[];
+  recentEvents: LeaderboardEventGroup[];
+  streaks: {
+    points: LeaderboardStreak;
+    exact: LeaderboardStreak;
+    miss: LeaderboardStreak;
+  };
+  matchStats: {
+    topScoring: LeaderboardMatchPoints[];
+    zeroHitFixtures: LeaderboardMatchPoints[];
+  };
 }
 
 function roundPoints(value: number) {
@@ -162,6 +195,77 @@ function assignPositions(rows: LeaderboardBaseRow[]): LeaderboardPositionedRow[]
   });
 }
 
+function formEntryForFixture(
+  playerId: string,
+  fixture: Fixture,
+  scoreByPlayerFixture: Map<string, StoredScoreEntry>,
+  betByPlayerFixture: Map<string, Bet>,
+): LeaderboardFormEntry {
+  const key = `${playerId}:${fixture.id}`;
+  const bet = betByPlayerFixture.get(key);
+
+  if (fixture.status !== 'locked') {
+    return {
+      fixture,
+      result: 'upcoming',
+      points: 0,
+      betHomeScore: bet?.homeScore,
+      betAwayScore: bet?.awayScore,
+    };
+  }
+
+  const score = scoreByPlayerFixture.get(key);
+  return {
+    fixture,
+    result: score?.pointType === 'outcome' ? 'outcome' : score ? 'exact' : bet ? 'miss' : 'none',
+    points: roundPoints(score?.points ?? 0),
+    betHomeScore: bet?.homeScore ?? score?.betHomeScore,
+    betAwayScore: bet?.awayScore ?? score?.betAwayScore,
+  };
+}
+
+function bestMatchingRun(entries: LeaderboardFormEntry[], predicate: (entry: LeaderboardFormEntry) => boolean) {
+  let current: LeaderboardFormEntry[] = [];
+  let best: LeaderboardFormEntry[] = [];
+
+  for (const entry of entries) {
+    if (predicate(entry)) {
+      current = [...current, entry];
+    } else {
+      if (current.length > best.length) best = current;
+      current = [];
+    }
+  }
+
+  if (current.length > best.length) best = current;
+  return best;
+}
+
+function buildStreak(
+  rows: LeaderboardRow[],
+  fullFormByPlayerId: Map<string, LeaderboardFormEntry[]>,
+  predicate: (entry: LeaderboardFormEntry) => boolean,
+): LeaderboardStreak {
+  let bestLength = 0;
+  const winners: LeaderboardStreakWinner[] = [];
+
+  for (const row of rows) {
+    const entries = bestMatchingRun(fullFormByPlayerId.get(row.player.id) ?? [], predicate);
+    if (entries.length === 0) continue;
+
+    if (entries.length > bestLength) {
+      bestLength = entries.length;
+      winners.length = 0;
+    }
+
+    if (entries.length === bestLength) {
+      winners.push({ player: row.player, entries });
+    }
+  }
+
+  return { bestLength, winners };
+}
+
 function buildRows(
   players: Player[],
   scores: StoredScoreEntry[],
@@ -175,13 +279,12 @@ function buildRows(
     entries.push(score);
     scoresByPlayerId.set(score.playerId, entries);
   }
-  const betKeySet = new Set(bets.map((bet) => `${bet.playerId}:${bet.fixtureId}`));
   const betByPlayerFixture = new Map(bets.map((bet) => [`${bet.playerId}:${bet.fixtureId}`, bet]));
+  const scoreByPlayerFixture = new Map(scores.map((score) => [`${score.playerId}:${score.fixtureId}`, score]));
 
   return sortRows(
     players.map((player) => {
       const history = scoresByPlayerId.get(player.id) ?? [];
-      const scoreByFixtureId = new Map(history.map((score) => [score.fixtureId, score]));
       const total = history.reduce((acc, score) => acc + score.points, 0);
       return {
         player,
@@ -190,29 +293,9 @@ function buildRows(
         exactHits: history.filter((score) => score.pointType !== 'outcome').length,
         outcomeHits: history.filter((score) => score.pointType === 'outcome').length,
         lastMatchPoints: roundPoints(lastMatchPointsByPlayerId.get(player.id) ?? 0),
-        recentForm: recentFixtures.map((fixture) => {
-          const bet = betByPlayerFixture.get(`${player.id}:${fixture.id}`);
-
-          if (fixture.status !== 'locked') {
-            return {
-              fixture,
-              result: 'upcoming' as const,
-              points: 0,
-              betHomeScore: bet?.homeScore,
-              betAwayScore: bet?.awayScore,
-            };
-          }
-
-          const score = scoreByFixtureId.get(fixture.id);
-          const hasBet = betKeySet.has(`${player.id}:${fixture.id}`);
-          return {
-            fixture,
-            result: score?.pointType === 'outcome' ? 'outcome' : score ? 'exact' : hasBet ? 'miss' : 'none',
-            points: roundPoints(score?.points ?? 0),
-            betHomeScore: bet?.homeScore,
-            betAwayScore: bet?.awayScore,
-          };
-        }),
+        recentForm: recentFixtures.map((fixture) =>
+          formEntryForFixture(player.id, fixture, scoreByPlayerFixture, betByPlayerFixture),
+        ),
       };
     }),
   );
@@ -276,6 +359,28 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     entries.push(score);
     scoresByFixtureId.set(score.fixtureId, entries);
   }
+  const pointsByFixture = lockedFixtures.map((fixture) => {
+    const entries = scoresByFixtureId.get(fixture.id) ?? [];
+    return {
+      fixture,
+      totalPoints: roundPoints(entries.reduce((acc, score) => acc + score.points, 0)),
+      hitCount: entries.length,
+      exactHitCount: entries.filter((score) => score.pointType !== 'outcome').length,
+      outcomeHitCount: entries.filter((score) => score.pointType === 'outcome').length,
+    };
+  });
+  const topTotalPoints = Math.max(0, ...pointsByFixture.map((entry) => entry.totalPoints));
+  const matchStats = {
+    topScoring:
+      topTotalPoints > 0
+        ? pointsByFixture
+            .filter((entry) => entry.totalPoints === topTotalPoints)
+            .sort((a, b) => compareFixturesByKickoff(a.fixture, b.fixture))
+        : [],
+    zeroHitFixtures: pointsByFixture
+      .filter((entry) => entry.hitCount === 0)
+      .sort((a, b) => compareFixturesByKickoff(b.fixture, a.fixture)),
+  };
 
   const runningTotalsByPlayerId = new Map(players.map((player) => [player.id, 0]));
   const timeline = lockedFixtures.map((fixture, index) => {
@@ -298,26 +403,67 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
   });
 
   const fixtureOrderById = new Map(lockedFixtures.map((fixture, index) => [fixture.id, index]));
-  const recentEvents = scores
+  const scoreByPlayerFixture = new Map(scores.map((score) => [`${score.playerId}:${score.fixtureId}`, score]));
+  const betByPlayerFixture = new Map(bets.map((bet) => [`${bet.playerId}:${bet.fixtureId}`, bet]));
+  const fullFormByPlayerId = new Map(
+    players.map((player) => [
+      player.id,
+      lockedFixtures.map((fixture) =>
+        formEntryForFixture(player.id, fixture, scoreByPlayerFixture, betByPlayerFixture),
+      ),
+    ]),
+  );
+  const streaks = {
+    points: buildStreak(
+      board,
+      fullFormByPlayerId,
+      (entry) => entry.result === 'exact' || entry.result === 'outcome',
+    ),
+    exact: buildStreak(board, fullFormByPlayerId, (entry) => entry.result === 'exact'),
+    miss: buildStreak(board, fullFormByPlayerId, (entry) => entry.result === 'miss'),
+  };
+  const groupedEvents = new Map<string, LeaderboardEventGroup>();
+  for (const event of scores
     .map((score) => {
-      const fixture = fixtureMap.get(score.fixtureId);
       const player = playerMap.get(score.playerId);
-      return fixture && player
+      return player
         ? {
             id: String(score.id ?? `${score.playerId}:${score.fixtureId}`),
             player,
-            fixture,
             score,
           }
         : null;
     })
-    .filter((event): event is LeaderboardEvent => event != null)
+    .filter((event): event is LeaderboardEvent => event != null)) {
+    const fixture = fixtureMap.get(event.score.fixtureId);
+    if (!fixture) continue;
+
+    const pointType = event.score.pointType === 'outcome' ? 'outcome' : 'exact';
+    const key = `${fixture.id}:${pointType}`;
+    const group = groupedEvents.get(key) ?? {
+      id: key,
+      fixture,
+      pointType,
+      events: [],
+    };
+    group.events.push(event);
+    groupedEvents.set(key, group);
+  }
+
+  const recentEvents = [...groupedEvents.values()]
+    .map((group) => ({
+      ...group,
+      events: [...group.events].sort((a, b) => {
+        if (b.score.points !== a.score.points) return b.score.points - a.score.points;
+        return a.player.name.localeCompare(b.player.name, 'pl-PL');
+      }),
+    }))
     .sort((a, b) => {
       const fixtureDelta =
         (fixtureOrderById.get(b.fixture.id) ?? -1) - (fixtureOrderById.get(a.fixture.id) ?? -1);
       if (fixtureDelta !== 0) return fixtureDelta;
-      if (b.score.points !== a.score.points) return b.score.points - a.score.points;
-      return a.player.name.localeCompare(b.player.name, 'pl-PL');
+      if (a.pointType !== b.pointType) return a.pointType === 'exact' ? -1 : 1;
+      return a.fixture.id.localeCompare(b.fixture.id);
     })
     .slice(0, 10);
 
@@ -328,5 +474,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     lastFixture,
     timeline,
     recentEvents,
+    streaks,
+    matchStats,
   };
 }
