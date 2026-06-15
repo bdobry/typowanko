@@ -1,4 +1,4 @@
-import { db, type Bet, type Fixture, type Player, type ScoreEntry } from '../db';
+import { db, type Bet, type Fixture, type Odd, type Player, type ScoreEntry } from '../db';
 import { compareFixturesByKickoff, hasFixtureStarted } from './fixtureTime';
 
 export function scoreKey(h: number, a: number) {
@@ -169,6 +169,17 @@ export interface LeaderboardBiggestMiss {
   awayError: number;
 }
 
+export interface LeaderboardMissedOdd {
+  id: string;
+  player: Player;
+  fixture: Fixture;
+  betHomeScore: number;
+  betAwayScore: number;
+  resultHomeScore: number;
+  resultAwayScore: number;
+  odd: number;
+}
+
 export interface LeaderboardData {
   board: LeaderboardRow[];
   lockedCount: number;
@@ -186,6 +197,11 @@ export interface LeaderboardData {
     zeroHitFixtures: LeaderboardMatchPoints[];
     lowHitMatches: LeaderboardLowHitMatch[];
     biggestMisses: LeaderboardBiggestMiss[];
+    missedOdds: {
+      lowest: LeaderboardMissedOdd[];
+      highest: LeaderboardMissedOdd[];
+    };
+    fullyHitFixtures: LeaderboardMatchPoints[];
   };
 }
 
@@ -361,11 +377,12 @@ function buildRows(
 }
 
 export async function getLeaderboardData(): Promise<LeaderboardData> {
-  const [players, allScores, fixtures, bets] = await Promise.all([
+  const [players, allScores, fixtures, bets, odds] = await Promise.all([
     db.players.toArray(),
     db.scores.toArray(),
     db.fixtures.toArray(),
     db.bets.toArray(),
+    db.odds.toArray(),
   ]);
   const totalFixtures = fixtures.length;
   const lockedFixtures = fixtures
@@ -420,6 +437,11 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
   }
   const scoreByPlayerFixture = new Map(scores.map((score) => [`${score.playerId}:${score.fixtureId}`, score]));
   const betByPlayerFixture = new Map(bets.map((bet) => [`${bet.playerId}:${bet.fixtureId}`, bet]));
+  const exactOddByBetKey = new Map(
+    (odds as Odd[])
+      .filter((odd) => odd.odd > 0)
+      .map((odd) => [`${odd.fixtureId}:${odd.homeScore}:${odd.awayScore}`, odd.odd]),
+  );
   const pointsByFixture = lockedFixtures.map((fixture) => {
     const entries = scoresByFixtureId.get(fixture.id) ?? [];
     return {
@@ -446,6 +468,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
             playerResults: buildFixtureBetResults(players, entry.fixture, scoreByPlayerFixture, betByPlayerFixture),
           }));
   const biggestMissCandidates: LeaderboardBiggestMiss[] = [];
+  const missedOddCandidates: LeaderboardMissedOdd[] = [];
   for (const fixture of lockedFixtures) {
     if (fixture.homeScore == null || fixture.awayScore == null) continue;
 
@@ -458,9 +481,11 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       const awayError = Math.abs(bet.awayScore - fixture.awayScore);
       const error = homeError + awayError;
       if (error <= 0) continue;
+      const id = String(bet.id ?? `${bet.playerId}:${fixture.id}`);
+      const missedOdd = exactOddByBetKey.get(`${fixture.id}:${bet.homeScore}:${bet.awayScore}`);
 
       biggestMissCandidates.push({
-        id: String(bet.id ?? `${bet.playerId}:${fixture.id}`),
+        id,
         player,
         fixture,
         betHomeScore: bet.homeScore,
@@ -471,6 +496,18 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
         homeError,
         awayError,
       });
+      if (missedOdd != null) {
+        missedOddCandidates.push({
+          id,
+          player,
+          fixture,
+          betHomeScore: bet.homeScore,
+          betAwayScore: bet.awayScore,
+          resultHomeScore: fixture.homeScore,
+          resultAwayScore: fixture.awayScore,
+          odd: missedOdd,
+        });
+      }
     }
   }
   const biggestMisses = biggestMissCandidates
@@ -481,6 +518,14 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       return a.player.name.localeCompare(b.player.name, 'pl-PL');
     })
     .slice(0, 5);
+  const sortMissedOdds = (entries: LeaderboardMissedOdd[]) =>
+    [...entries].sort((a, b) => {
+      const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
+      if (fixtureDelta !== 0) return fixtureDelta;
+      return a.player.name.localeCompare(b.player.name, 'pl-PL');
+    });
+  const lowestMissedOdd = Math.min(...missedOddCandidates.map((entry) => entry.odd));
+  const highestMissedOdd = Math.max(0, ...missedOddCandidates.map((entry) => entry.odd));
   const topTotalPoints = Math.max(0, ...pointsByFixture.map((entry) => entry.totalPoints));
   const matchStats = {
     topScoring:
@@ -494,6 +539,18 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       .sort((a, b) => compareFixturesByKickoff(b.fixture, a.fixture)),
     lowHitMatches,
     biggestMisses,
+    missedOdds: {
+      lowest: Number.isFinite(lowestMissedOdd)
+        ? sortMissedOdds(missedOddCandidates.filter((entry) => entry.odd === lowestMissedOdd))
+        : [],
+      highest:
+        highestMissedOdd > 0
+          ? sortMissedOdds(missedOddCandidates.filter((entry) => entry.odd === highestMissedOdd))
+          : [],
+    },
+    fullyHitFixtures: pointsByFixture
+      .filter((entry) => players.length > 0 && entry.hitCount === players.length)
+      .sort((a, b) => compareFixturesByKickoff(b.fixture, a.fixture)),
   };
 
   const runningTotalsByPlayerId = new Map(players.map((player) => [player.id, 0]));
