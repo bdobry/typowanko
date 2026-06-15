@@ -46,6 +46,7 @@ export async function fetchMatchResult(
     url.searchParams.set('date', searchDate);
     url.searchParams.set('league', String(WC_LEAGUE_ID));
     url.searchParams.set('season', String(WC_SEASON));
+    url.searchParams.set('timezone', 'UTC');
 
     const res = await fetch(url.toString(), {
       headers: { 'x-apisports-key': apiKey },

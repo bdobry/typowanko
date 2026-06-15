@@ -40,11 +40,22 @@ export interface SnapshotResponse {
   snapshot: TypowankoSnapshot;
 }
 
+export interface ResultRefreshFixtureIssue {
+  fixtureId: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  reason: 'api_error' | 'not_found' | 'not_finished' | 'missing_score' | string;
+  status?: string;
+  message?: string;
+}
+
 export interface ResultRefreshResponse extends SnapshotResponse {
   lockedFixtureIds?: string[];
   refreshedAt?: number;
   throttled?: boolean;
   skippedReason?: string;
+  failedFixtures?: ResultRefreshFixtureIssue[];
+  unresolvedFixtures?: ResultRefreshFixtureIssue[];
 }
 
 export interface PushSnapshotResponse {

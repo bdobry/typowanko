@@ -102,6 +102,10 @@ function autoResultLockedCount(response: SnapshotResponse | ResultRefreshRespons
   return 'lockedFixtureIds' in response ? response.lockedFixtureIds?.length ?? 0 : 0;
 }
 
+function shouldUseHostLocalResultFallback(response: ResultRefreshResponse) {
+  return response.skippedReason === 'missing_api_key' || response.skippedReason === 'api_error';
+}
+
 function hasAutoResultCandidate(snapshot: Pick<TypowankoSnapshot, 'fixtures'>, now: number) {
   return snapshot.fixtures.some(
     (fixture) =>
@@ -401,6 +405,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           if (stats.cloudBetsKept > 0) {
             mergedParts.push(`${stats.cloudBetsKept} zakładów z chmury`);
           }
+          if (stats.cloudResultsKept > 0) {
+            mergedParts.push(`${stats.cloudResultsKept} wyników z chmury`);
+          }
           if (stats.hostConflictsWon > 0) {
             mergedParts.push(`${stats.hostConflictsWon} konfliktów zakładów rozstrzygniętych po stronie hosta`);
           }
@@ -469,13 +476,21 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
       if (!credential) return;
       const response = await refreshCompletedResultsRequest(credential);
-      if (response.skippedReason === 'missing_api_key' && role === 'host') {
+      if (role === 'host' && shouldUseHostLocalResultFallback(response)) {
+        if (response.skippedReason === 'api_error') {
+          console.warn('Cloud automatic result refresh could not use API-Football.', response.failedFixtures);
+        }
         const lockedFixtureIds = await refreshLocalCompletedResults(now);
         if (lockedFixtureIds.length > 0) {
           markDirty();
-          setNotice(autoResultNoticeMessage(lockedFixtureIds.length));
+          const message = autoResultNoticeMessage(lockedFixtureIds.length);
+          setNotice(
+            response.skippedReason === 'api_error'
+              ? `${message} Worker API-Football nie odpowiedział, więc host użył lokalnego klucza.`
+              : message,
+          );
+          return;
         }
-        return;
       }
       if (response.revision === revision) return;
 

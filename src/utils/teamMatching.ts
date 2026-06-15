@@ -3,10 +3,15 @@ import { toStoredTeamName } from './displayNames';
 const TEAM_NAME_ALIASES: Record<string, string> = {
   'bosnia and herzegovina': 'bosnia and herzegovina',
   'bosnia herzegovina': 'bosnia and herzegovina',
+  'cabo verde': 'cape verde',
   'cape verde': 'cape verde',
   'cape verde islands': 'cape verde',
+  'congo dr': 'dr congo',
   'cote d ivoire': 'ivory coast',
   'curacao': 'curacao',
+  'democratic republic of congo': 'dr congo',
+  'dr congo': 'dr congo',
+  'ir iran': 'iran',
   'ivory coast': 'ivory coast',
   'korea republic': 'south korea',
   'new zealand': 'new zealand',
@@ -14,6 +19,7 @@ const TEAM_NAME_ALIASES: Record<string, string> = {
   'republic of korea': 'south korea',
   'turkey': 'turkey',
   'turkiye': 'turkey',
+  'united states of america': 'usa',
   'united states': 'usa',
   'usa': 'usa',
 };

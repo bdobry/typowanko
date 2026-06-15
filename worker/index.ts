@@ -125,6 +125,21 @@ type SnapshotRecord = {
   matchOdds: SnapshotMatchOddRecord[];
 };
 
+type MatchResultLookup =
+  | { kind: 'finished'; homeScore: number; awayScore: number; status: string; matchedDate: string }
+  | { kind: 'not_finished'; status: string; matchedDate: string }
+  | { kind: 'missing_score'; status: string; matchedDate: string }
+  | { kind: 'not_found' };
+
+type ResultRefreshFixtureIssue = {
+  fixtureId: string;
+  homeTeam: string;
+  awayTeam: string;
+  reason: 'api_error' | 'not_found' | 'not_finished' | 'missing_score';
+  status?: string;
+  message?: string;
+};
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
@@ -242,10 +257,15 @@ function fixtureSearchDates(date: string) {
 const TEAM_NAME_ALIASES: Record<string, string> = {
   'bosnia and herzegovina': 'bosnia and herzegovina',
   'bosnia herzegovina': 'bosnia and herzegovina',
+  'cabo verde': 'cape verde',
   'cape verde': 'cape verde',
   'cape verde islands': 'cape verde',
+  'congo dr': 'dr congo',
   'cote d ivoire': 'ivory coast',
   'curacao': 'curacao',
+  'democratic republic of congo': 'dr congo',
+  'dr congo': 'dr congo',
+  'ir iran': 'iran',
   'ivory coast': 'ivory coast',
   'korea republic': 'south korea',
   'new zealand': 'new zealand',
@@ -253,6 +273,7 @@ const TEAM_NAME_ALIASES: Record<string, string> = {
   'republic of korea': 'south korea',
   'turkey': 'turkey',
   'turkiye': 'turkey',
+  'united states of america': 'usa',
   'united states': 'usa',
   'usa': 'usa',
 };
@@ -284,6 +305,10 @@ function numericValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function errorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
 async function apiFootballGet(url: URL, apiKey: string) {
   const response = await fetch(url.toString(), {
     headers: { 'x-apisports-key': apiKey },
@@ -308,12 +333,13 @@ async function fetchMatchResultFromApi(
   awayTeam: string,
   date: string,
   apiKey: string,
-) {
+): Promise<MatchResultLookup> {
   for (const searchDate of fixtureSearchDates(date)) {
     const url = new URL(`${API_FOOTBALL_BASE}/fixtures`);
     url.searchParams.set('date', searchDate);
     url.searchParams.set('league', String(WC_LEAGUE_ID));
     url.searchParams.set('season', String(WC_SEASON));
+    url.searchParams.set('timezone', 'UTC');
 
     const entries = await apiFootballGet(url, apiKey);
     for (const entry of entries as Array<Record<string, unknown>>) {
@@ -327,18 +353,24 @@ async function fetchMatchResultFromApi(
       if (!directMatch && !reversedMatch) continue;
 
       const status = fixture?.status?.short ?? 'UNKNOWN';
-      if (!FINISHED_STATUSES.has(status)) return null;
-      if (goals?.home == null || goals?.away == null) return null;
+      if (!FINISHED_STATUSES.has(status)) {
+        return { kind: 'not_finished', status, matchedDate: searchDate };
+      }
+      if (goals?.home == null || goals?.away == null) {
+        return { kind: 'missing_score', status, matchedDate: searchDate };
+      }
 
       return {
+        kind: 'finished',
         homeScore: reversedMatch ? goals.away : goals.home,
         awayScore: reversedMatch ? goals.home : goals.away,
         status,
+        matchedDate: searchDate,
       };
     }
   }
 
-  return null;
+  return { kind: 'not_found' };
 }
 
 function recalculateFixtureScores(snapshot: SnapshotRecord, fixture: SnapshotFixtureRecord) {
@@ -924,6 +956,8 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
       snapshot,
       lockedFixtureIds: [],
       throttled: true,
+      failedFixtures: [],
+      unresolvedFixtures: [],
     });
   }
 
@@ -939,6 +973,8 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
       snapshot,
       lockedFixtureIds: [],
       skippedReason: 'missing_api_key',
+      failedFixtures: [],
+      unresolvedFixtures: [],
     });
   }
 
@@ -963,6 +999,8 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
       playerPresence: playerPresenceFromSnapshot(snapshot),
       snapshot,
       lockedFixtureIds: [],
+      failedFixtures: [],
+      unresolvedFixtures: [],
     });
   }
 
@@ -998,11 +1036,21 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
       snapshot: latestSnapshot,
       lockedFixtureIds: [],
       throttled: true,
+      failedFixtures: [],
+      unresolvedFixtures: [],
     });
   }
 
   const lockedFixtureIds: string[] = [];
+  const failedFixtures: ResultRefreshFixtureIssue[] = [];
+  const unresolvedFixtures: ResultRefreshFixtureIssue[] = [];
   for (const fixture of candidates) {
+    const fixtureIssueBase = {
+      fixtureId: fixture.id as string,
+      homeTeam: fixture.homeTeam as string,
+      awayTeam: fixture.awayTeam as string,
+    };
+
     try {
       const result = await fetchMatchResultFromApi(
         fixture.homeTeam as string,
@@ -1010,19 +1058,54 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
         fixture.date as string,
         env.API_FOOTBALL_KEY,
       );
-      if (!result) continue;
+
+      if (result.kind === 'not_found') {
+        unresolvedFixtures.push({ ...fixtureIssueBase, reason: 'not_found' });
+        continue;
+      }
+
+      if (result.kind === 'not_finished') {
+        unresolvedFixtures.push({
+          ...fixtureIssueBase,
+          reason: 'not_finished',
+          status: result.status,
+        });
+        continue;
+      }
+
+      if (result.kind === 'missing_score') {
+        unresolvedFixtures.push({
+          ...fixtureIssueBase,
+          reason: 'missing_score',
+          status: result.status,
+        });
+        continue;
+      }
 
       fixture.status = 'locked';
       fixture.homeScore = result.homeScore;
       fixture.awayScore = result.awayScore;
       recalculateFixtureScores(snapshot, fixture);
       lockedFixtureIds.push(fixture.id as string);
-    } catch {
-      // A single missing fixture or transient API failure should not block other results.
+    } catch (err) {
+      failedFixtures.push({
+        ...fixtureIssueBase,
+        reason: 'api_error',
+        message: errorMessage(err),
+      });
     }
   }
 
   if (lockedFixtureIds.length === 0) {
+    const skippedReason =
+      failedFixtures.length > 0
+        ? 'api_error'
+        : unresolvedFixtures.some((fixture) => fixture.reason === 'not_finished')
+        ? 'not_finished'
+        : unresolvedFixtures.length > 0
+        ? 'not_found'
+        : undefined;
+
     return jsonResponse({
       leagueId,
       revision: league.revision + 1,
@@ -1034,6 +1117,9 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
       snapshot,
       lockedFixtureIds,
       refreshedAt: now,
+      skippedReason,
+      failedFixtures,
+      unresolvedFixtures,
     });
   }
 
@@ -1067,6 +1153,8 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
     snapshot,
     lockedFixtureIds,
     refreshedAt: finishedAt,
+    failedFixtures,
+    unresolvedFixtures,
   });
 }
 
