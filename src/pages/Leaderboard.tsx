@@ -11,6 +11,7 @@ import {
   type LeaderboardLowHitMatch,
   type LeaderboardMatchPoints,
   type LeaderboardMissedOdd,
+  type LeaderboardMissedOutcomeOddGroup,
   type LeaderboardRow,
   type LeaderboardStreak,
 } from '../utils/scoring';
@@ -384,6 +385,49 @@ function MissedOddRow({
   );
 }
 
+function MissedOutcomeOddGroup({
+  group,
+  leaderIds,
+  currentPlayerId,
+}: {
+  group: LeaderboardMissedOutcomeOddGroup;
+  leaderIds: ReadonlySet<string>;
+  currentPlayerId?: string;
+}) {
+  return (
+    <div className="py-3 first:pt-0 last:pb-0">
+      <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-gray-900" title={fixtureTeamsLabel(group.fixture)}>
+            {fixtureScoreLabel(group.fixture)}
+          </div>
+          <div className="mt-0.5 text-xs text-gray-400">
+            {shortDate(group.fixture.date)} · {group.entries.length} {group.entries.length === 1 ? 'osoba' : 'osób'}
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-700 ring-1 ring-gray-200">
+          {group.odd.toFixed(2)}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {group.entries.map((entry) => (
+          <span key={entry.id} className="inline-flex min-w-0 items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600 ring-1 ring-red-100">
+            <span className="max-w-32 truncate font-semibold sm:max-w-44">
+              {formatPlayerName(entry.player, leaderIds)}
+            </span>
+            {entry.player.id === currentPlayerId && (
+              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">
+                ty
+              </span>
+            )}
+            <span className="font-mono font-semibold">{entry.betHomeScore}:{entry.betAwayScore}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MatchStatsSection({
   stats,
   leaderIds,
@@ -399,6 +443,8 @@ function MatchStatsSection({
     stats.lowHitMatches.length === 0 &&
     stats.biggestMisses.length === 0 &&
     stats.missedOdds.lowest.length === 0 &&
+    stats.missedOdds.lowestOutcome.length === 0 &&
+    stats.missedOdds.highestOutcome.length === 0 &&
     stats.missedOdds.highest.length === 0 &&
     stats.fullyHitFixtures.length === 0
   ) {
@@ -471,28 +517,23 @@ function MatchStatsSection({
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Największe pudła</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najbardziej ustrzelone mecze</h3>
+            <span className="shrink-0 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 ring-1 ring-green-100">
+              wszyscy
+            </span>
           </div>
-          <p className="mb-2 text-xs leading-relaxed text-gray-400">
-            Top 5. Liczone jako |typ gospodarzy - gole gospodarzy| + |typ gości - gole gości| dla typów bez punktów.
-          </p>
-          {stats.biggestMisses.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {stats.biggestMisses.map((miss) => (
-                <BiggestMissRow
-                  key={miss.id}
-                  miss={miss}
-                  leaderIds={leaderIds}
-                  currentPlayerId={currentPlayerId}
-                />
+          {stats.fullyHitFixtures.length > 0 ? (
+            <div className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+              {stats.fullyHitFixtures.map((entry) => (
+                <MatchPointsRow key={entry.fixture.id} entry={entry} />
               ))}
             </div>
           ) : (
-            <p className="py-4 text-sm text-gray-400">Brak nietrafionych typów z zapisanym wynikiem.</p>
+            <p className="py-4 text-sm text-gray-400">Brak meczu, w którym punktowali wszyscy.</p>
           )}
         </div>
       </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
         <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najniższy spudłowany kurs</h3>
@@ -533,19 +574,62 @@ function MatchStatsSection({
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najbardziej ustrzelone mecze</h3>
-            <span className="shrink-0 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 ring-1 ring-green-100">
-              wszyscy
-            </span>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najniższy spudłowany 1X2</h3>
           </div>
-          {stats.fullyHitFixtures.length > 0 ? (
-            <div className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
-              {stats.fullyHitFixtures.map((entry) => (
-                <MatchPointsRow key={entry.fixture.id} entry={entry} />
+          {stats.missedOdds.lowestOutcome.length > 0 ? (
+            <div className="divide-y divide-gray-100">
+              {stats.missedOdds.lowestOutcome.map((group) => (
+                <MissedOutcomeOddGroup
+                  key={group.id}
+                  group={group}
+                  leaderIds={leaderIds}
+                  currentPlayerId={currentPlayerId}
+                />
               ))}
             </div>
           ) : (
-            <p className="py-4 text-sm text-gray-400">Brak meczu, w którym punktowali wszyscy.</p>
+            <p className="py-4 text-sm text-gray-400">Brak spudłowanych 1X2 z kursem.</p>
+          )}
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najwyższy spudłowany 1X2</h3>
+          </div>
+          {stats.missedOdds.highestOutcome.length > 0 ? (
+            <div className="divide-y divide-gray-100">
+              {stats.missedOdds.highestOutcome.map((group) => (
+                <MissedOutcomeOddGroup
+                  key={group.id}
+                  group={group}
+                  leaderIds={leaderIds}
+                  currentPlayerId={currentPlayerId}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-4 text-sm text-gray-400">Brak spudłowanych 1X2 z kursem.</p>
+          )}
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Największe pudła</h3>
+          </div>
+          <p className="mb-2 text-xs leading-relaxed text-gray-400">
+            Top 5. Liczone jako |typ gospodarzy - gole gospodarzy| + |typ gości - gole gości| dla typów bez punktów.
+          </p>
+          {stats.biggestMisses.length > 0 ? (
+            <div className="divide-y divide-gray-100">
+              {stats.biggestMisses.map((miss) => (
+                <BiggestMissRow
+                  key={miss.id}
+                  miss={miss}
+                  leaderIds={leaderIds}
+                  currentPlayerId={currentPlayerId}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="py-4 text-sm text-gray-400">Brak nietrafionych typów z zapisanym wynikiem.</p>
           )}
         </div>
       </div>
