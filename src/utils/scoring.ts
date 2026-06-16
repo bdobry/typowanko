@@ -111,6 +111,8 @@ export interface LeaderboardTimelinePoint {
   fixture: Fixture;
   matchNumber: number;
   totalsByPlayerId: Record<string, number>;
+  pointsByPlayerId: Record<string, number>;
+  hasOdds: boolean;
 }
 
 export interface LeaderboardEvent {
@@ -608,9 +610,42 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       .sort((a, b) => compareFixturesByKickoff(b.fixture, a.fixture)),
   };
 
+  const fixturesByKickoff = [...fixtures].sort(compareFixturesByKickoff);
+  const fixtureOrderIndexById = new Map(fixturesByKickoff.map((fixture, index) => [fixture.id, index]));
+  const fixtureIdsWithOdds = new Set<string>();
+  for (const odd of odds as Odd[]) {
+    if (odd.odd > 0) fixtureIdsWithOdds.add(odd.fixtureId);
+  }
+  for (const odd of matchOdds as MatchOdd[]) {
+    if (odd.homeOdd > 0 || odd.drawOdd > 0 || odd.awayOdd > 0) {
+      fixtureIdsWithOdds.add(odd.fixtureId);
+    }
+  }
+  for (const score of scores) {
+    fixtureIdsWithOdds.add(score.fixtureId);
+  }
+
+  const lastFixtureWithOddsIndex = Math.max(
+    -1,
+    ...[...fixtureIdsWithOdds].map((fixtureId) => fixtureOrderIndexById.get(fixtureId) ?? -1),
+  );
+  const lastLockedFixtureIndex = lastFixture
+    ? fixtureOrderIndexById.get(lastFixture.id) ?? -1
+    : -1;
+  const timelineEndIndex = Math.max(lastFixtureWithOddsIndex, lastLockedFixtureIndex);
+  const timelineFixtures = timelineEndIndex >= 0
+    ? fixturesByKickoff.slice(0, timelineEndIndex + 1)
+    : [];
+
   const runningTotalsByPlayerId = new Map(players.map((player) => [player.id, 0]));
-  const timeline = lockedFixtures.map((fixture, index) => {
-    for (const score of scoresByFixtureId.get(fixture.id) ?? []) {
+  const timeline = timelineFixtures.map((fixture, index) => {
+    const fixtureScores = scoresByFixtureId.get(fixture.id) ?? [];
+    const pointsByPlayerId = new Map(players.map((player) => [player.id, 0]));
+    for (const score of fixtureScores) {
+      pointsByPlayerId.set(
+        score.playerId,
+        (pointsByPlayerId.get(score.playerId) ?? 0) + score.points,
+      );
       runningTotalsByPlayerId.set(
         score.playerId,
         (runningTotalsByPlayerId.get(score.playerId) ?? 0) + score.points,
@@ -625,6 +660,13 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
           roundPoints(runningTotalsByPlayerId.get(player.id) ?? 0),
         ]),
       ),
+      pointsByPlayerId: Object.fromEntries(
+        players.map((player) => [
+          player.id,
+          roundPoints(pointsByPlayerId.get(player.id) ?? 0),
+        ]),
+      ),
+      hasOdds: fixtureIdsWithOdds.has(fixture.id),
     };
   });
 

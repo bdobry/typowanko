@@ -18,22 +18,11 @@ import {
 import { useSync } from '../sync/syncContextValue';
 import { PlayerHistory } from '../components/PlayerHistory';
 import { Tooltip } from '../components/Tooltip';
+import { LeaderboardProgressChart } from '../components/LeaderboardProgressChart';
 import { displayTeamName } from '../utils/displayNames';
 import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-const CHART_COLORS = [
-  '#166534',
-  '#2563eb',
-  '#dc2626',
-  '#9333ea',
-  '#ea580c',
-  '#0891b2',
-  '#be123c',
-  '#4d7c0f',
-  '#475569',
-  '#a16207',
-];
 
 function formatPoints(value: number) {
   return value.toFixed(2);
@@ -95,17 +84,6 @@ function matchCountLabel(count: number) {
     return `${count} mecze`;
   }
   return `${count} meczów`;
-}
-
-interface ChartHover {
-  key: string;
-  x: number;
-  y: number;
-  playerName: string;
-  total: number;
-  fixtureName: string;
-  date: string;
-  color: string;
 }
 
 function RankChangeIcon({ delta, hasLastFixture }: { delta: number; hasLastFixture: boolean }) {
@@ -637,216 +615,20 @@ function MatchStatsSection({
   );
 }
 
-function ProgressChart({
-  data,
-  rows,
-  leaderIds,
-}: {
-  data: LeaderboardData['timeline'];
-  rows: LeaderboardRow[];
-  leaderIds: ReadonlySet<string>;
-}) {
-  const [hoveredPoint, setHoveredPoint] = useState<ChartHover | null>(null);
-
-  if (data.length === 0) {
-    return (
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Postęp punktów</h2>
-        <p className="text-gray-400 text-sm bg-white border border-gray-200 rounded-lg px-4 py-6 text-center">
-          Brak zakończonych meczów.
-        </p>
-      </div>
-    );
-  }
-
-  const width = 760;
-  const height = 280;
-  const margin = { top: 18, right: 20, bottom: 44, left: 48 };
-  const chartWidth = width - margin.left - margin.right;
-  const chartHeight = height - margin.top - margin.bottom;
-  const maxPoints = Math.max(
-    1,
-    ...data.flatMap((point) => rows.map((row) => point.totalsByPlayerId[row.player.id] ?? 0)),
-  );
-  const xFor = (index: number) =>
-    data.length === 1
-      ? margin.left
-      : margin.left + (index / (data.length - 1)) * chartWidth;
-  const yFor = (points: number) =>
-    margin.top + chartHeight - (points / maxPoints) * chartHeight;
-  const yTicks = [0, maxPoints / 2, maxPoints];
-  const firstPoint = data[0];
-  const lastPoint = data[data.length - 1];
-  const tooltipWidth = 220;
-  const tooltipHeight = 74;
-  const tooltip = hoveredPoint
-    ? {
-        x:
-          hoveredPoint.x + tooltipWidth + 14 > width - margin.right
-            ? hoveredPoint.x - tooltipWidth - 14
-            : hoveredPoint.x + 14,
-        y:
-          hoveredPoint.y - tooltipHeight - 12 < margin.top
-            ? hoveredPoint.y + 14
-            : hoveredPoint.y - tooltipHeight - 12,
-      }
-    : null;
-
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Postęp punktów</h2>
-        <span className="text-xs text-gray-400">
-          {data.length} {data.length === 1 ? 'mecz' : 'meczów'}
-        </span>
-      </div>
-      <div className="bg-white border border-gray-200 rounded-lg px-3 py-3">
-        <div className="overflow-x-auto">
-          <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[680px] w-full h-auto" role="img">
-            <title>Postęp punktów od pierwszego do ostatniego zakończonego meczu</title>
-            {yTicks.map((tick) => {
-              const y = yFor(tick);
-              return (
-                <g key={tick}>
-                  <line
-                    x1={margin.left}
-                    y1={y}
-                    x2={width - margin.right}
-                    y2={y}
-                    stroke="#e5e7eb"
-                    strokeWidth="1"
-                  />
-                  <text x={margin.left - 10} y={y + 4} textAnchor="end" className="fill-gray-400 text-[11px]">
-                    {tick.toFixed(tick >= 10 ? 0 : 1)}
-                  </text>
-                </g>
-              );
-            })}
-            <line
-              x1={margin.left}
-              y1={margin.top}
-              x2={margin.left}
-              y2={margin.top + chartHeight}
-              stroke="#d1d5db"
-              strokeWidth="1"
-            />
-            <line
-              x1={margin.left}
-              y1={margin.top + chartHeight}
-              x2={width - margin.right}
-              y2={margin.top + chartHeight}
-              stroke="#d1d5db"
-              strokeWidth="1"
-            />
-            {rows.map((row, playerIndex) => {
-              const color = CHART_COLORS[playerIndex % CHART_COLORS.length];
-              const points = data.map((point, index) => ({
-                x: xFor(index),
-                y: yFor(point.totalsByPlayerId[row.player.id] ?? 0),
-                total: point.totalsByPlayerId[row.player.id] ?? 0,
-                point,
-              }));
-              const path = points
-                .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-                .join(' ');
-
-              return (
-                <g key={row.player.id}>
-                  <path d={path} fill="none" stroke={color} strokeWidth="2.25" strokeLinecap="round" />
-                  {points.map((point) => {
-                    const key = `${row.player.id}:${point.point.fixture.id}`;
-                    const fixtureName = `${displayTeamName(point.point.fixture.homeTeam)} - ${displayTeamName(point.point.fixture.awayTeam)}`;
-                    const hover: ChartHover = {
-                      key,
-                      x: point.x,
-                      y: point.y,
-                      playerName: formatPlayerName(row.player, leaderIds),
-                      total: point.total,
-                      fixtureName,
-                      date: shortDate(point.point.fixture.date),
-                      color,
-                    };
-                    const isHovered = hoveredPoint?.key === key;
-                    return (
-                      <circle
-                        key={key}
-                        cx={point.x}
-                        cy={point.y}
-                        r={isHovered ? 5 : 3}
-                        fill={color}
-                        stroke={isHovered ? '#111827' : 'white'}
-                        strokeWidth={isHovered ? 1.5 : 1}
-                        tabIndex={0}
-                        className="cursor-pointer outline-none"
-                        aria-label={`${formatPlayerName(row.player, leaderIds)}: ${formatPoints(point.total)} punktów po meczu ${fixtureName}`}
-                        onMouseEnter={() => setHoveredPoint(hover)}
-                        onMouseLeave={() => setHoveredPoint(null)}
-                        onFocus={() => setHoveredPoint(hover)}
-                        onBlur={() => setHoveredPoint(null)}
-                      />
-                    );
-                  })}
-                </g>
-              );
-            })}
-            {hoveredPoint && tooltip && (
-              <g pointerEvents="none" transform={`translate(${tooltip.x} ${tooltip.y})`}>
-                <rect
-                  width={tooltipWidth}
-                  height={tooltipHeight}
-                  rx="6"
-                  fill="white"
-                  stroke="#d1d5db"
-                  strokeWidth="1"
-                  filter="drop-shadow(0 2px 6px rgb(0 0 0 / 0.12))"
-                />
-                <circle cx="14" cy="18" r="4" fill={hoveredPoint.color} />
-                <text x="26" y="22" className="fill-gray-900 text-[12px] font-semibold">
-                  {hoveredPoint.playerName}
-                </text>
-                <text x="12" y="42" className="fill-gray-600 text-[11px]">
-                  {formatPoints(hoveredPoint.total)} pkt · {hoveredPoint.date}
-                </text>
-                <text x="12" y="60" className="fill-gray-500 text-[10px]">
-                  {hoveredPoint.fixtureName}
-                </text>
-              </g>
-            )}
-            <text x={margin.left} y={height - 14} textAnchor="start" className="fill-gray-400 text-[11px]">
-              Mecz 1 · {shortDate(firstPoint.fixture.date)}
-            </text>
-            {data.length > 1 && (
-              <text x={width - margin.right} y={height - 14} textAnchor="end" className="fill-gray-400 text-[11px]">
-                Mecz {lastPoint.matchNumber} · {shortDate(lastPoint.fixture.date)}
-              </text>
-            )}
-          </svg>
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-xs">
-          {rows.map((row, index) => (
-            <span key={row.player.id} className="inline-flex items-center gap-1.5 text-gray-600">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-              />
-              {formatPlayerName(row.player, leaderIds)}
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function Leaderboard() {
   const { isViewer, playerId } = useSync();
   const data = useLiveQuery(() => getLeaderboardData(), []);
   const [historyPlayer, setHistoryPlayer] = useState<Player | null>(null);
+  const [recentEventsExpanded, setRecentEventsExpanded] = useState(false);
 
   if (!data) return <div className="text-gray-400 text-center py-12">Ładowanie…</div>;
 
   const leaderIds = leaderIdsFromRows(data.board);
   const fixtureById = new Map(data.timeline.map((point) => [point.fixture.id, point.fixture]));
+  const visibleRecentEvents = recentEventsExpanded
+    ? data.recentEvents
+    : data.recentEvents.slice(0, 3);
+  const hasMoreRecentEvents = data.recentEvents.length > 3;
   const bestHits = data.board
     .flatMap(({ player, history }) =>
       history.map((score) => ({
@@ -984,7 +766,12 @@ export function Leaderboard() {
       )}
 
       {data.board.length > 0 && (
-        <ProgressChart data={data.timeline} rows={data.board} leaderIds={leaderIds} />
+        <LeaderboardProgressChart
+          data={data.timeline}
+          rows={data.board}
+          leaderIds={leaderIds}
+          currentPlayerId={playerId ?? undefined}
+        />
       )}
 
       {/* Recent events */}
@@ -992,7 +779,7 @@ export function Leaderboard() {
         <div>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Ostatnie zdarzenia</h2>
           <div className="space-y-1.5">
-            {data.recentEvents.map((event) => {
+            {visibleRecentEvents.map((event) => {
               const groupPoints = event.events[0]?.score.points ?? 0;
 
               return (
@@ -1034,6 +821,15 @@ export function Leaderboard() {
               );
             })}
           </div>
+          {hasMoreRecentEvents && (
+            <button
+              type="button"
+              onClick={() => setRecentEventsExpanded((value) => !value)}
+              className="mt-3 inline-flex h-9 items-center rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              {recentEventsExpanded ? 'Zwiń' : 'Rozwiń'}
+            </button>
+          )}
         </div>
       ) : (
         data.board.length > 0 && (
