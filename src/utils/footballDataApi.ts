@@ -74,13 +74,21 @@ export async function fetchMatchResult(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fixtures: any[] = data.response ?? [];
 
-    const entry = fixtures.find(
-      (f) =>
-        teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
-        teamsMatch(f.teams?.away?.name ?? '', awayTeam),
-    );
+    const entry = fixtures.find((f) => {
+      const apiHomeTeam = f.teams?.home?.name ?? '';
+      const apiAwayTeam = f.teams?.away?.name ?? '';
+      const directMatch = teamsMatch(apiHomeTeam, homeTeam) && teamsMatch(apiAwayTeam, awayTeam);
+      const reversedMatch = teamsMatch(apiHomeTeam, awayTeam) && teamsMatch(apiAwayTeam, homeTeam);
+      return directMatch || reversedMatch;
+    });
 
     if (!entry) continue;
+
+    const apiHomeTeam = entry.teams?.home?.name ?? '';
+    const apiAwayTeam = entry.teams?.away?.name ?? '';
+    const directMatch = teamsMatch(apiHomeTeam, homeTeam) && teamsMatch(apiAwayTeam, awayTeam);
+    const reversedMatch = teamsMatch(apiHomeTeam, awayTeam) && teamsMatch(apiAwayTeam, homeTeam);
+    const reversed = !directMatch && reversedMatch;
 
     const status: string = entry.fixture?.status?.short ?? 'UNKNOWN';
     const FINISHED_STATUSES = ['FT', 'AET', 'PEN'];
@@ -98,7 +106,11 @@ export async function fetchMatchResult(
       throw new Error(`Brak wyniku dla meczu "${homeTeam} vs ${awayTeam}".`);
     }
 
-    return { homeScore, awayScore, status };
+    return {
+      homeScore: reversed ? awayScore : homeScore,
+      awayScore: reversed ? homeScore : awayScore,
+      status,
+    };
   }
 
   throw new Error(

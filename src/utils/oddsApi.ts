@@ -53,6 +53,11 @@ export interface Match1X2Odds {
   fetchedAt: number;
 }
 
+interface FixtureLookup {
+  fixtureId: number;
+  reversed: boolean;
+}
+
 function addUtcDays(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
@@ -61,6 +66,24 @@ function addUtcDays(date: string, days: number): string {
 
 function fixtureSearchDates(date: string): string[] {
   return [date, addUtcDays(date, 1), addUtcDays(date, -1)];
+}
+
+function mapCorrectScoreOddsToAppOrder(odds: CorrectScoreOdd[], reversed: boolean): CorrectScoreOdd[] {
+  if (!reversed) return odds;
+  return odds.map((odd) => ({
+    ...odd,
+    homeScore: odd.awayScore,
+    awayScore: odd.homeScore,
+  }));
+}
+
+function mapMatch1X2OddsToAppOrder(match1X2: Match1X2Odds | null, reversed: boolean): Match1X2Odds | null {
+  if (!match1X2 || !reversed) return match1X2;
+  return {
+    ...match1X2,
+    homeOdd: match1X2.awayOdd,
+    awayOdd: match1X2.homeOdd,
+  };
 }
 
 /**
@@ -235,7 +258,7 @@ async function resolveFixtureId(
   awayTeam: string,
   date: string,
   apiKey: string,
-): Promise<number> {
+): Promise<FixtureLookup> {
   console.log(`🔍 Finding fixture for ${homeTeam} vs ${awayTeam} around ${date} (${FIXTURE_TIMEZONE})...`);
 
   for (const searchDate of fixtureSearchDates(date)) {
@@ -252,24 +275,34 @@ async function resolveFixtureId(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fixturesList: any[] = fixturesData.response ?? [];
 
-    const fixtureEntry = fixturesList.find(
-      (f) =>
-        teamsMatch(f.teams?.home?.name ?? '', homeTeam) &&
-        teamsMatch(f.teams?.away?.name ?? '', awayTeam),
-    );
+    const fixtureEntry = fixturesList.find((f) => {
+      const apiHomeTeam = f.teams?.home?.name ?? '';
+      const apiAwayTeam = f.teams?.away?.name ?? '';
+      const directMatch = teamsMatch(apiHomeTeam, homeTeam) && teamsMatch(apiAwayTeam, awayTeam);
+      const reversedMatch = teamsMatch(apiHomeTeam, awayTeam) && teamsMatch(apiAwayTeam, homeTeam);
+      return directMatch || reversedMatch;
+    });
 
     if (fixtureEntry) {
       const fixtureId: number = fixtureEntry.fixture.id;
       const fixtureDate: string | undefined = fixtureEntry.fixture?.date;
+      const apiHomeTeam = fixtureEntry.teams?.home?.name ?? '';
+      const apiAwayTeam = fixtureEntry.teams?.away?.name ?? '';
+      const directMatch = teamsMatch(apiHomeTeam, homeTeam) && teamsMatch(apiAwayTeam, awayTeam);
+      const reversedMatch = teamsMatch(apiHomeTeam, awayTeam) && teamsMatch(apiAwayTeam, homeTeam);
+      const reversed = !directMatch && reversedMatch;
       console.log(
         searchDate === date
           ? `✓ Found fixture ID: ${fixtureId}`
           : `✓ Found fixture ID: ${fixtureId} on ${searchDate} UTC (requested ${date})`,
       );
+      if (reversed) {
+        console.log(`API fixture order is ${apiHomeTeam} vs ${apiAwayTeam}; remapping odds to ${homeTeam} vs ${awayTeam}`);
+      }
       if (fixtureDate) {
         console.log(`✓ API fixture date: ${fixtureDate}`);
       }
-      return fixtureId;
+      return { fixtureId, reversed };
     }
   }
 
@@ -300,11 +333,11 @@ export async function fetchCorrectScoreOdds(
   console.log(`✓ Using bet ID: ${betId}, bookmaker ID: ${bookmakerId} (${DEFAULT_BOOKMAKER_NAME})`);
 
   // Step 2: Resolve fixture ID from date + team names
-  const fixtureId = await resolveFixtureId(homeTeam, awayTeam, date, apiKey);
+  const fixtureLookup = await resolveFixtureId(homeTeam, awayTeam, date, apiKey);
 
   // Step 3: Fetch odds with specific bet and bookmaker parameters
   const oddsUrl = new URL(`${API_BASE}/odds`);
-  oddsUrl.searchParams.set('fixture', String(fixtureId));
+  oddsUrl.searchParams.set('fixture', String(fixtureLookup.fixtureId));
   oddsUrl.searchParams.set('bet', String(betId));
   oddsUrl.searchParams.set('bookmaker', String(bookmakerId));
 
@@ -354,15 +387,15 @@ export async function fetchCorrectScoreOdds(
   }
 
   if (results.length === 0) {
-    console.warn(`⚠️ No Correct Score odds found from ${DEFAULT_BOOKMAKER_NAME} for fixture ${fixtureId}`);
+    console.warn(`⚠️ No Correct Score odds found from ${DEFAULT_BOOKMAKER_NAME} for fixture ${fixtureLookup.fixtureId}`);
     throw new Error(
-      `Znaleziono mecz (ID: ${fixtureId}), ale ${DEFAULT_BOOKMAKER_NAME} nie zwrócił kursów "Correct Score". ` +
+      `Znaleziono mecz (ID: ${fixtureLookup.fixtureId}), ale ${DEFAULT_BOOKMAKER_NAME} nie zwrócił kursów "Correct Score". ` +
         `Kursy mogą być niedostępne przed meczem lub ${DEFAULT_BOOKMAKER_NAME} nie oferuje kursów dla tego meczu.`,
     );
   }
 
   console.log(`✓ Fetched ${results.length} Correct Score odds from ${DEFAULT_BOOKMAKER_NAME}`);
-  return results;
+  return mapCorrectScoreOddsToAppOrder(results, fixtureLookup.reversed);
 }
 
 /**
@@ -448,20 +481,23 @@ export async function fetchAllOdds(
   console.log(`✓ Using bookmaker: ${DEFAULT_BOOKMAKER_NAME} (ID: ${bookmakerId})`);
 
   // Resolve fixture ID
-  const fixtureId = await resolveFixtureId(homeTeam, awayTeam, date, apiKey);
+  const fixtureLookup = await resolveFixtureId(homeTeam, awayTeam, date, apiKey);
 
   // Fetch both correct score odds and 1X2 odds in parallel
   const [correctScoreOddsSettled, match1X2Settled] = await Promise.allSettled([
-    fetchCorrectScoreOddsById(fixtureId, betId, bookmakerId, apiKey),
-    fetchMatch1X2OddsById(fixtureId, matchWinnerBetId, bookmakerId, apiKey),
+    fetchCorrectScoreOddsById(fixtureLookup.fixtureId, betId, bookmakerId, apiKey),
+    fetchMatch1X2OddsById(fixtureLookup.fixtureId, matchWinnerBetId, bookmakerId, apiKey),
   ]);
 
   if (correctScoreOddsSettled.status === 'rejected') {
     throw correctScoreOddsSettled.reason;
   }
 
-  const correctScoreOdds = correctScoreOddsSettled.value;
-  const match1X2 = match1X2Settled.status === 'fulfilled' ? match1X2Settled.value : null;
+  const correctScoreOdds = mapCorrectScoreOddsToAppOrder(correctScoreOddsSettled.value, fixtureLookup.reversed);
+  const match1X2 = mapMatch1X2OddsToAppOrder(
+    match1X2Settled.status === 'fulfilled' ? match1X2Settled.value : null,
+    fixtureLookup.reversed,
+  );
 
   if (match1X2Settled.status === 'rejected') {
     console.warn('⚠️ Could not fetch 1X2 odds:', match1X2Settled.reason);
