@@ -207,6 +207,17 @@ export interface LeaderboardBestHit {
   pointType: 'exact' | 'outcome';
 }
 
+export interface LeaderboardExactResultOddHit {
+  id: string;
+  player: Player;
+}
+
+export interface LeaderboardExactResultOddMatch {
+  fixture: Fixture;
+  odd: number | null;
+  hits: LeaderboardExactResultOddHit[];
+}
+
 export interface LeaderboardData {
   board: LeaderboardRow[];
   lockedCount: number;
@@ -216,6 +227,7 @@ export interface LeaderboardData {
   recentEvents: LeaderboardEventGroup[];
   bestHits: LeaderboardBestHit[];
   almostHits: LeaderboardAlmostHit[];
+  exactResultOdds: LeaderboardExactResultOddMatch[];
   streaks: {
     points: LeaderboardStreak;
     exact: LeaderboardStreak;
@@ -642,6 +654,38 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       if (fixtureDelta !== 0) return fixtureDelta;
       return a.player.name.localeCompare(b.player.name, 'pl-PL');
     });
+  const exactResultOdds = lockedFixtures
+    .map((fixture) => {
+      const odd =
+        fixture.homeScore != null && fixture.awayScore != null
+          ? exactOddByBetKey.get(`${fixture.id}:${fixture.homeScore}:${fixture.awayScore}`) ?? null
+          : null;
+      const hits = (scoresByFixtureId.get(fixture.id) ?? [])
+        .filter((score) => score.pointType !== 'outcome')
+        .map((score) => {
+          const player = playerMap.get(score.playerId);
+          return player
+            ? {
+                id: String(score.id ?? `${score.playerId}:${score.fixtureId}`),
+                player,
+              }
+            : null;
+        })
+        .filter((hit): hit is LeaderboardExactResultOddHit => hit != null)
+        .sort((a, b) => a.player.name.localeCompare(b.player.name, 'pl-PL'));
+
+      return {
+        fixture,
+        odd,
+        hits,
+      };
+    })
+    .sort((a, b) => {
+      if (a.odd == null && b.odd != null) return 1;
+      if (a.odd != null && b.odd == null) return -1;
+      if (a.odd != null && b.odd != null && b.odd !== a.odd) return b.odd - a.odd;
+      return compareFixturesByKickoff(b.fixture, a.fixture);
+    });
   const sortMissedOdds = (entries: LeaderboardMissedOdd[]) =>
     [...entries].sort((a, b) => {
       const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
@@ -873,6 +917,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     recentEvents,
     bestHits,
     almostHits,
+    exactResultOdds,
     streaks,
     matchStats,
   };

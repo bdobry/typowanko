@@ -15,6 +15,7 @@ import { displayTeamName } from '../utils/displayNames';
 import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 import { AlmostHitsSection } from '../components/leaderboard/AlmostHitsSection';
 import { BestHitsSection } from '../components/leaderboard/BestHitsSection';
+import { ExactResultOddsSection } from '../components/leaderboard/ExactResultOddsSection';
 import { MatchStatsSection } from '../components/leaderboard/MatchStatsSection';
 import {
   fixtureResultLabel,
@@ -369,6 +370,12 @@ export function Leaderboard() {
 
       <AlmostHitsSection
         hits={data.almostHits}
+        leaderIds={leaderIds}
+        currentPlayerId={playerId ?? undefined}
+      />
+
+      <ExactResultOddsSection
+        matches={data.exactResultOdds}
         leaderIds={leaderIds}
         currentPlayerId={playerId ?? undefined}
       />
