@@ -182,11 +182,29 @@ export interface LeaderboardMissedOdd {
   odd: number;
 }
 
+export interface LeaderboardAlmostHit extends LeaderboardMissedOdd {
+  error: number;
+  homeError: number;
+  awayError: number;
+}
+
 export interface LeaderboardMissedOutcomeOddGroup {
   id: string;
   fixture: Fixture;
   odd: number;
   entries: LeaderboardMissedOdd[];
+}
+
+export interface LeaderboardBestHit {
+  id: string;
+  player: Player;
+  fixture: Fixture;
+  points: number;
+  betHomeScore: number;
+  betAwayScore: number;
+  resultHomeScore: number;
+  resultAwayScore: number;
+  pointType: 'exact' | 'outcome';
 }
 
 export interface LeaderboardData {
@@ -196,6 +214,8 @@ export interface LeaderboardData {
   lastFixture: Fixture | null;
   timeline: LeaderboardTimelinePoint[];
   recentEvents: LeaderboardEventGroup[];
+  bestHits: LeaderboardBestHit[];
+  almostHits: LeaderboardAlmostHit[];
   streaks: {
     points: LeaderboardStreak;
     exact: LeaderboardStreak;
@@ -295,16 +315,38 @@ function bestMatchingRun(entries: LeaderboardFormEntry[], predicate: (entry: Lea
   return best;
 }
 
+function bestMatchingRunIgnoringNeutral(
+  entries: LeaderboardFormEntry[],
+  predicate: (entry: LeaderboardFormEntry) => boolean,
+  isNeutral: (entry: LeaderboardFormEntry) => boolean,
+) {
+  let current: LeaderboardFormEntry[] = [];
+  let best: LeaderboardFormEntry[] = [];
+
+  for (const entry of entries) {
+    if (predicate(entry)) {
+      current = [...current, entry];
+    } else if (!isNeutral(entry)) {
+      if (current.length > best.length) best = current;
+      current = [];
+    }
+  }
+
+  if (current.length > best.length) best = current;
+  return best;
+}
+
 function buildStreak(
   rows: LeaderboardRow[],
   fullFormByPlayerId: Map<string, LeaderboardFormEntry[]>,
   predicate: (entry: LeaderboardFormEntry) => boolean,
+  findBestRun = bestMatchingRun,
 ): LeaderboardStreak {
   let bestLength = 0;
   const winners: LeaderboardStreakWinner[] = [];
 
   for (const row of rows) {
-    const entries = bestMatchingRun(fullFormByPlayerId.get(row.player.id) ?? [], predicate);
+    const entries = findBestRun(fullFormByPlayerId.get(row.player.id) ?? [], predicate);
     if (entries.length === 0) continue;
 
     if (entries.length > bestLength) {
@@ -385,6 +427,29 @@ function buildRows(
       };
     }),
   );
+}
+
+function bestHitGroupKey(hit: LeaderboardBestHit) {
+  return [
+    hit.fixture.id,
+    hit.pointType,
+    hit.points,
+    hit.resultHomeScore,
+    hit.resultAwayScore,
+  ].join(':');
+}
+
+function takeBestHitsWithCutoffGroup(hits: LeaderboardBestHit[], limit: number) {
+  if (hits.length <= limit) return hits;
+
+  const cutoffGroupKey = bestHitGroupKey(hits[limit - 1]);
+  let endIndex = limit;
+
+  while (endIndex < hits.length && bestHitGroupKey(hits[endIndex]) === cutoffGroupKey) {
+    endIndex += 1;
+  }
+
+  return hits.slice(0, endIndex);
 }
 
 export async function getLeaderboardData(): Promise<LeaderboardData> {
@@ -483,13 +548,13 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
   const biggestMissCandidates: LeaderboardBiggestMiss[] = [];
   const missedOddCandidates: LeaderboardMissedOdd[] = [];
   const missedOutcomeOddCandidates: LeaderboardMissedOdd[] = [];
+  const almostHitCandidates: LeaderboardAlmostHit[] = [];
   for (const fixture of lockedFixtures) {
     if (fixture.homeScore == null || fixture.awayScore == null) continue;
 
     for (const bet of bets.filter((entry) => entry.fixtureId === fixture.id)) {
       const player = playerMap.get(bet.playerId);
       if (!player) continue;
-      if (scoreByPlayerFixture.has(`${bet.playerId}:${fixture.id}`)) continue;
 
       const homeError = Math.abs(bet.homeScore - fixture.homeScore);
       const awayError = Math.abs(bet.awayScore - fixture.awayScore);
@@ -505,6 +570,24 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
           : betOutcome === 'draw'
           ? matchOdd?.drawOdd
           : matchOdd?.awayOdd;
+
+      if (missedOdd != null && error === 1) {
+        almostHitCandidates.push({
+          id,
+          player,
+          fixture,
+          betHomeScore: bet.homeScore,
+          betAwayScore: bet.awayScore,
+          resultHomeScore: fixture.homeScore,
+          resultAwayScore: fixture.awayScore,
+          odd: missedOdd,
+          error,
+          homeError,
+          awayError,
+        });
+      }
+
+      if (scoreByPlayerFixture.has(`${bet.playerId}:${fixture.id}`)) continue;
 
       biggestMissCandidates.push({
         id,
@@ -552,8 +635,22 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       return a.player.name.localeCompare(b.player.name, 'pl-PL');
     })
     .slice(0, 5);
+  const almostHits = almostHitCandidates
+    .sort((a, b) => {
+      if (b.odd !== a.odd) return b.odd - a.odd;
+      const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
+      if (fixtureDelta !== 0) return fixtureDelta;
+      return a.player.name.localeCompare(b.player.name, 'pl-PL');
+    });
   const sortMissedOdds = (entries: LeaderboardMissedOdd[]) =>
     [...entries].sort((a, b) => {
+      const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
+      if (fixtureDelta !== 0) return fixtureDelta;
+      return a.player.name.localeCompare(b.player.name, 'pl-PL');
+    });
+  const sortHighestMissedOdds = (entries: LeaderboardMissedOdd[]) =>
+    [...entries].sort((a, b) => {
+      if (b.odd !== a.odd) return b.odd - a.odd;
       const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
       if (fixtureDelta !== 0) return fixtureDelta;
       return a.player.name.localeCompare(b.player.name, 'pl-PL');
@@ -574,15 +671,18 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
   };
   const lowestMissedOdd = Math.min(...missedOddCandidates.map((entry) => entry.odd));
   const lowestMissedOutcomeOdd = Math.min(...missedOutcomeOddCandidates.map((entry) => entry.odd));
-  const highestMissedOdd = Math.max(0, ...missedOddCandidates.map((entry) => entry.odd));
   const highestMissedOutcomeOdd = Math.max(0, ...missedOutcomeOddCandidates.map((entry) => entry.odd));
   const topTotalPoints = Math.max(0, ...pointsByFixture.map((entry) => entry.totalPoints));
   const matchStats = {
     topScoring:
       topTotalPoints > 0
-        ? pointsByFixture
-            .filter((entry) => entry.totalPoints === topTotalPoints)
-            .sort((a, b) => compareFixturesByKickoff(a.fixture, b.fixture))
+        ? [...pointsByFixture]
+            .filter((entry) => entry.totalPoints > 0)
+            .sort((a, b) => {
+              if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+              return compareFixturesByKickoff(a.fixture, b.fixture);
+            })
+            .slice(0, 5)
         : [],
     zeroHitFixtures: pointsByFixture
       .filter((entry) => entry.hitCount === 0)
@@ -600,10 +700,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
         highestMissedOutcomeOdd > 0
           ? groupMissedOutcomeOdds(missedOutcomeOddCandidates.filter((entry) => entry.odd === highestMissedOutcomeOdd))
           : [],
-      highest:
-        highestMissedOdd > 0
-          ? sortMissedOdds(missedOddCandidates.filter((entry) => entry.odd === highestMissedOdd))
-          : [],
+      highest: sortHighestMissedOdds(missedOddCandidates).slice(0, 5),
     },
     fullyHitFixtures: pointsByFixture
       .filter((entry) => players.length > 0 && entry.hitCount === players.length)
@@ -686,7 +783,13 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       (entry) => entry.result === 'exact' || entry.result === 'outcome',
     ),
     exact: buildStreak(board, fullFormByPlayerId, (entry) => entry.result === 'exact'),
-    miss: buildStreak(board, fullFormByPlayerId, (entry) => entry.result === 'miss'),
+    miss: buildStreak(
+      board,
+      fullFormByPlayerId,
+      (entry) => entry.result === 'miss',
+      (entries, predicate) =>
+        bestMatchingRunIgnoringNeutral(entries, predicate, (entry) => entry.result === 'none'),
+    ),
   };
   const groupedEvents = new Map<string, LeaderboardEventGroup>();
   for (const event of scores
@@ -733,6 +836,34 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     })
     .slice(0, 10);
 
+  const sortedBestHits = scores
+    .map((score) => {
+      const player = playerMap.get(score.playerId);
+      const fixture = fixtureMap.get(score.fixtureId);
+      if (!player || !fixture) return null;
+
+      return {
+        id: String(score.id ?? `${score.playerId}:${score.fixtureId}`),
+        player,
+        fixture,
+        points: roundPoints(score.points),
+        betHomeScore: score.betHomeScore,
+        betAwayScore: score.betAwayScore,
+        resultHomeScore: score.resultHomeScore,
+        resultAwayScore: score.resultAwayScore,
+        pointType: score.pointType === 'outcome' ? 'outcome' : 'exact',
+      } satisfies LeaderboardBestHit;
+    })
+    .filter((hit): hit is LeaderboardBestHit => hit != null)
+    .sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
+      if (fixtureDelta !== 0) return fixtureDelta;
+      if (a.pointType !== b.pointType) return a.pointType === 'exact' ? -1 : 1;
+      return a.player.name.localeCompare(b.player.name, 'pl-PL');
+    });
+  const bestHits = takeBestHitsWithCutoffGroup(sortedBestHits, 10);
+
   return {
     board,
     lockedCount: lockedFixtures.length,
@@ -740,6 +871,8 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     lastFixture,
     timeline,
     recentEvents,
+    bestHits,
+    almostHits,
     streaks,
     matchStats,
   };

@@ -1,17 +1,9 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { Fixture, Player } from '../db';
+import type { Player } from '../db';
 import {
   getLeaderboardData,
-  type LeaderboardData,
-  type LeaderboardBiggestMiss,
-  type LeaderboardEventGroup,
-  type LeaderboardFixtureBetResult,
   type LeaderboardFormEntry,
-  type LeaderboardLowHitMatch,
-  type LeaderboardMatchPoints,
-  type LeaderboardMissedOdd,
-  type LeaderboardMissedOutcomeOddGroup,
   type LeaderboardRow,
   type LeaderboardStreak,
 } from '../utils/scoring';
@@ -21,54 +13,19 @@ import { Tooltip } from '../components/Tooltip';
 import { LeaderboardProgressChart } from '../components/LeaderboardProgressChart';
 import { displayTeamName } from '../utils/displayNames';
 import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
+import { AlmostHitsSection } from '../components/leaderboard/AlmostHitsSection';
+import { BestHitsSection } from '../components/leaderboard/BestHitsSection';
+import { MatchStatsSection } from '../components/leaderboard/MatchStatsSection';
+import {
+  fixtureResultLabel,
+  formResultLabel,
+  formatPoints,
+  matchCountLabel,
+  scoreTypeLabel,
+  shortDate,
+} from '../components/leaderboard/formatters';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-
-function formatPoints(value: number) {
-  return value.toFixed(2);
-}
-
-function shortDate(date: string) {
-  return new Date(date + 'T12:00:00').toLocaleDateString('pl-PL', {
-    day: 'numeric',
-    month: 'short',
-  });
-}
-
-function fixtureTeamsLabel(fixture: Pick<Fixture, 'homeTeam' | 'awayTeam'>) {
-  return `${displayTeamName(fixture.homeTeam)} – ${displayTeamName(fixture.awayTeam)}`;
-}
-
-function fixtureLabel(event: LeaderboardEventGroup) {
-  return fixtureTeamsLabel(event.fixture);
-}
-
-function fixtureResultLabel(event: LeaderboardEventGroup) {
-  if (event.fixture.homeScore == null || event.fixture.awayScore == null) {
-    return fixtureLabel(event);
-  }
-
-  return `${displayTeamName(event.fixture.homeTeam)} ${event.fixture.homeScore}:${event.fixture.awayScore} ${displayTeamName(event.fixture.awayTeam)}`;
-}
-
-function fixtureScoreLabel(fixture: Fixture) {
-  if (fixture.homeScore == null || fixture.awayScore == null) {
-    return fixtureTeamsLabel(fixture);
-  }
-
-  return `${displayTeamName(fixture.homeTeam)} ${fixture.homeScore}:${fixture.awayScore} ${displayTeamName(fixture.awayTeam)}`;
-}
-
-function scoreTypeLabel(event: LeaderboardEventGroup) {
-  return event.pointType === 'outcome' ? 'trafiony 1X2' : 'dokładny wynik';
-}
-
-function formResultLabel(result: LeaderboardFormEntry['result'], points: number) {
-  if (result === 'upcoming') return 'Najbliższy mecz';
-  if (result === 'none') return 'Brak obstawienia';
-  if (result === 'miss') return 'Nietrafione';
-  return `${result === 'exact' ? 'Dokładny wynik' : 'Trafiony W/D/L'} +${formatPoints(points)} pkt`;
-}
 
 function formEntryVisual(result: LeaderboardFormEntry['result']) {
   if (result === 'upcoming') return { className: 'bg-gray-200 text-gray-600', label: '?' };
@@ -76,14 +33,6 @@ function formEntryVisual(result: LeaderboardFormEntry['result']) {
   if (result === 'outcome') return { className: 'bg-yellow-300 text-yellow-900', label: 'R' };
   if (result === 'miss') return { className: 'bg-red-500 text-white', label: 'P' };
   return { className: 'bg-gray-200 text-gray-500', label: '-' };
-}
-
-function matchCountLabel(count: number) {
-  if (count === 1) return '1 mecz';
-  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
-    return `${count} mecze`;
-  }
-  return `${count} meczów`;
 }
 
 function RankChangeIcon({ delta, hasLastFixture }: { delta: number; hasLastFixture: boolean }) {
@@ -192,429 +141,6 @@ function StreakCard({
   );
 }
 
-function hitCountLabel(count: number) {
-  if (count === 1) return '1 trafienie';
-  return `${count} trafień`;
-}
-
-function MatchPointsRow({ entry }: { entry: LeaderboardMatchPoints }) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 py-2">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-gray-900" title={fixtureTeamsLabel(entry.fixture)}>
-          {fixtureScoreLabel(entry.fixture)}
-        </div>
-        <div className="mt-0.5 text-xs text-gray-400">
-          {shortDate(entry.fixture.date)} · {hitCountLabel(entry.hitCount)}
-          {entry.hitCount > 0 && (
-            <span>
-              {' '}· dokładne {entry.exactHitCount} · 1X2 {entry.outcomeHitCount}
-            </span>
-          )}
-        </div>
-      </div>
-      <span className={`shrink-0 text-sm font-bold ${entry.totalPoints > 0 ? 'text-green-700' : 'text-gray-400'}`}>
-        {formatPoints(entry.totalPoints)} pkt
-      </span>
-    </div>
-  );
-}
-
-function betResultClass(result: LeaderboardFixtureBetResult['result']) {
-  if (result === 'exact') return 'bg-green-50 text-green-700 ring-green-100';
-  if (result === 'outcome') return 'bg-yellow-50 text-yellow-800 ring-yellow-100';
-  if (result === 'miss') return 'bg-red-50 text-red-600 ring-red-100';
-  return 'bg-gray-50 text-gray-400 ring-gray-100';
-}
-
-function BetResultChip({
-  entry,
-  leaderIds,
-  currentPlayerId,
-}: {
-  entry: LeaderboardFixtureBetResult;
-  leaderIds: ReadonlySet<string>;
-  currentPlayerId?: string;
-}) {
-  const hasBet = entry.betHomeScore != null && entry.betAwayScore != null;
-
-  return (
-    <span className={`inline-flex min-w-0 items-center gap-1 rounded px-2 py-1 text-xs ring-1 ${betResultClass(entry.result)}`}>
-      <span className="max-w-32 truncate font-semibold sm:max-w-44">
-        {formatPlayerName(entry.player, leaderIds)}
-      </span>
-      {entry.player.id === currentPlayerId && (
-        <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">
-          ty
-        </span>
-      )}
-      <span className="font-mono font-semibold">
-        {hasBet ? `${entry.betHomeScore}:${entry.betAwayScore}` : 'brak'}
-      </span>
-      {entry.points > 0 && (
-        <span className="font-bold">+{formatPoints(entry.points)}</span>
-      )}
-    </span>
-  );
-}
-
-function LowHitMatchBlock({
-  match,
-  leaderIds,
-  currentPlayerId,
-}: {
-  match: LeaderboardLowHitMatch;
-  leaderIds: ReadonlySet<string>;
-  currentPlayerId?: string;
-}) {
-  return (
-    <div className="py-3 first:pt-0 last:pb-0">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-gray-900" title={fixtureTeamsLabel(match.fixture)}>
-            {fixtureScoreLabel(match.fixture)}
-          </div>
-          <div className="mt-0.5 text-xs text-gray-400">
-            {shortDate(match.fixture.date)} · {hitCountLabel(match.hitCount)} · {formatPoints(match.totalPoints)} pkt
-          </div>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {match.playerResults.map((entry) => (
-          <BetResultChip
-            key={entry.player.id}
-            entry={entry}
-            leaderIds={leaderIds}
-            currentPlayerId={currentPlayerId}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function BiggestMissRow({
-  miss,
-  leaderIds,
-  currentPlayerId,
-}: {
-  miss: LeaderboardBiggestMiss;
-  leaderIds: ReadonlySet<string>;
-  currentPlayerId?: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 py-2">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-gray-900">
-          {formatPlayerName(miss.player, leaderIds)}
-          {miss.player.id === currentPlayerId && (
-            <span className="ml-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">
-              ty
-            </span>
-          )}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-gray-500" title={fixtureTeamsLabel(miss.fixture)}>
-          {fixtureScoreLabel(miss.fixture)}
-        </div>
-        <div className="mt-1 text-xs text-gray-400">
-          typ <span className="font-mono font-semibold text-red-600">{miss.betHomeScore}:{miss.betAwayScore}</span>
-          {' '}· wynik <span className="font-mono font-semibold text-gray-700">{miss.resultHomeScore}:{miss.resultAwayScore}</span>
-        </div>
-      </div>
-      <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-600 ring-1 ring-red-100">
-        błąd {miss.error}
-      </span>
-    </div>
-  );
-}
-
-function MissedOddRow({
-  entry,
-  leaderIds,
-  currentPlayerId,
-}: {
-  entry: LeaderboardMissedOdd;
-  leaderIds: ReadonlySet<string>;
-  currentPlayerId?: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 py-2">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-gray-900">
-          {formatPlayerName(entry.player, leaderIds)}
-          {entry.player.id === currentPlayerId && (
-            <span className="ml-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">
-              ty
-            </span>
-          )}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-gray-500" title={fixtureTeamsLabel(entry.fixture)}>
-          {fixtureScoreLabel(entry.fixture)}
-        </div>
-        <div className="mt-1 text-xs text-gray-400">
-          typ <span className="font-mono font-semibold text-red-600">{entry.betHomeScore}:{entry.betAwayScore}</span>
-          {' '}· wynik <span className="font-mono font-semibold text-gray-700">{entry.resultHomeScore}:{entry.resultAwayScore}</span>
-        </div>
-      </div>
-      <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-700 ring-1 ring-gray-200">
-        {entry.odd.toFixed(2)}
-      </span>
-    </div>
-  );
-}
-
-function MissedOutcomeOddGroup({
-  group,
-  leaderIds,
-  currentPlayerId,
-}: {
-  group: LeaderboardMissedOutcomeOddGroup;
-  leaderIds: ReadonlySet<string>;
-  currentPlayerId?: string;
-}) {
-  return (
-    <div className="py-3 first:pt-0 last:pb-0">
-      <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-gray-900" title={fixtureTeamsLabel(group.fixture)}>
-            {fixtureScoreLabel(group.fixture)}
-          </div>
-          <div className="mt-0.5 text-xs text-gray-400">
-            {shortDate(group.fixture.date)} · {group.entries.length} {group.entries.length === 1 ? 'osoba' : 'osób'}
-          </div>
-        </div>
-        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-700 ring-1 ring-gray-200">
-          {group.odd.toFixed(2)}
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {group.entries.map((entry) => (
-          <span key={entry.id} className="inline-flex min-w-0 items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs text-red-600 ring-1 ring-red-100">
-            <span className="max-w-32 truncate font-semibold sm:max-w-44">
-              {formatPlayerName(entry.player, leaderIds)}
-            </span>
-            {entry.player.id === currentPlayerId && (
-              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">
-                ty
-              </span>
-            )}
-            <span className="font-mono font-semibold">{entry.betHomeScore}:{entry.betAwayScore}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MatchStatsSection({
-  stats,
-  leaderIds,
-  currentPlayerId,
-}: {
-  stats: LeaderboardData['matchStats'];
-  leaderIds: ReadonlySet<string>;
-  currentPlayerId?: string;
-}) {
-  if (
-    stats.topScoring.length === 0 &&
-    stats.zeroHitFixtures.length === 0 &&
-    stats.lowHitMatches.length === 0 &&
-    stats.biggestMisses.length === 0 &&
-    stats.missedOdds.lowest.length === 0 &&
-    stats.missedOdds.lowestOutcome.length === 0 &&
-    stats.missedOdds.highestOutcome.length === 0 &&
-    stats.missedOdds.highest.length === 0 &&
-    stats.fullyHitFixtures.length === 0
-  ) {
-    return null;
-  }
-
-  const lowHitLabel = stats.lowHitMatches[0]
-    ? hitCountLabel(stats.lowHitMatches[0].hitCount)
-    : '-';
-
-  return (
-    <div>
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Mecze w liczbach</h2>
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najbardziej punktodajny mecz</h3>
-            <span className="text-[10px] font-semibold text-gray-400">{stats.topScoring.length > 1 ? 'ex aequo' : ''}</span>
-          </div>
-          {stats.topScoring.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {stats.topScoring.map((entry) => (
-                <MatchPointsRow key={entry.fixture.id} entry={entry} />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak punktowanych meczów.</p>
-          )}
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najmniej punktodajne mecze</h3>
-            <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600 ring-1 ring-red-100">
-              0 trafień
-            </span>
-          </div>
-          {stats.zeroHitFixtures.length > 0 ? (
-            <div className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
-              {stats.zeroHitFixtures.map((entry) => (
-                <MatchPointsRow key={entry.fixture.id} entry={entry} />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Nie ma jeszcze meczu bez trafienia.</p>
-          )}
-        </div>
-      </div>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Samotny strzał</h3>
-            <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-              {lowHitLabel}
-            </span>
-          </div>
-          {stats.lowHitMatches.length > 0 ? (
-            <div className="max-h-96 divide-y divide-gray-100 overflow-y-auto">
-              {stats.lowHitMatches.map((match) => (
-                <LowHitMatchBlock
-                  key={match.fixture.id}
-                  match={match}
-                  leaderIds={leaderIds}
-                  currentPlayerId={currentPlayerId}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak zamkniętych meczów do pokazania.</p>
-          )}
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najbardziej ustrzelone mecze</h3>
-            <span className="shrink-0 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 ring-1 ring-green-100">
-              wszyscy
-            </span>
-          </div>
-          {stats.fullyHitFixtures.length > 0 ? (
-            <div className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
-              {stats.fullyHitFixtures.map((entry) => (
-                <MatchPointsRow key={entry.fixture.id} entry={entry} />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak meczu, w którym punktowali wszyscy.</p>
-          )}
-        </div>
-      </div>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najniższy spudłowany kurs</h3>
-          </div>
-          {stats.missedOdds.lowest.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {stats.missedOdds.lowest.map((entry) => (
-                <MissedOddRow
-                  key={entry.id}
-                  entry={entry}
-                  leaderIds={leaderIds}
-                  currentPlayerId={currentPlayerId}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak spudłowanych typów z kursem.</p>
-          )}
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najwyższy spudłowany kurs</h3>
-          </div>
-          {stats.missedOdds.highest.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {stats.missedOdds.highest.map((entry) => (
-                <MissedOddRow
-                  key={entry.id}
-                  entry={entry}
-                  leaderIds={leaderIds}
-                  currentPlayerId={currentPlayerId}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak spudłowanych typów z kursem.</p>
-          )}
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najniższy spudłowany 1X2</h3>
-          </div>
-          {stats.missedOdds.lowestOutcome.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {stats.missedOdds.lowestOutcome.map((group) => (
-                <MissedOutcomeOddGroup
-                  key={group.id}
-                  group={group}
-                  leaderIds={leaderIds}
-                  currentPlayerId={currentPlayerId}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak spudłowanych 1X2 z kursem.</p>
-          )}
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najwyższy spudłowany 1X2</h3>
-          </div>
-          {stats.missedOdds.highestOutcome.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {stats.missedOdds.highestOutcome.map((group) => (
-                <MissedOutcomeOddGroup
-                  key={group.id}
-                  group={group}
-                  leaderIds={leaderIds}
-                  currentPlayerId={currentPlayerId}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak spudłowanych 1X2 z kursem.</p>
-          )}
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Największe pudła</h3>
-          </div>
-          <p className="mb-2 text-xs leading-relaxed text-gray-400">
-            Top 5. Liczone jako |typ gospodarzy - gole gospodarzy| + |typ gości - gole gości| dla typów bez punktów.
-          </p>
-          {stats.biggestMisses.length > 0 ? (
-            <div className="divide-y divide-gray-100">
-              {stats.biggestMisses.map((miss) => (
-                <BiggestMissRow
-                  key={miss.id}
-                  miss={miss}
-                  leaderIds={leaderIds}
-                  currentPlayerId={currentPlayerId}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="py-4 text-sm text-gray-400">Brak nietrafionych typów z zapisanym wynikiem.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function Leaderboard() {
   const { isViewer, playerId } = useSync();
   const data = useLiveQuery(() => getLeaderboardData(), []);
@@ -624,21 +150,10 @@ export function Leaderboard() {
   if (!data) return <div className="text-gray-400 text-center py-12">Ładowanie…</div>;
 
   const leaderIds = leaderIdsFromRows(data.board);
-  const fixtureById = new Map(data.timeline.map((point) => [point.fixture.id, point.fixture]));
   const visibleRecentEvents = recentEventsExpanded
     ? data.recentEvents
     : data.recentEvents.slice(0, 3);
   const hasMoreRecentEvents = data.recentEvents.length > 3;
-  const bestHits = data.board
-    .flatMap(({ player, history }) =>
-      history.map((score) => ({
-        ...score,
-        playerName: formatPlayerName(player, leaderIds),
-        fixture: fixtureById.get(score.fixtureId),
-      })),
-    )
-    .sort((a, b) => b.points - a.points)
-    .slice(0, 10);
 
   return (
     <div className="space-y-6">
@@ -842,69 +357,21 @@ export function Leaderboard() {
         )
       )}
 
-      {/* Best scores */}
-      {bestHits.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Najlepsze trafienia</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {bestHits.map((hit, index) => {
-              const fixtureName = hit.fixture
-                ? `${displayTeamName(hit.fixture.homeTeam)} – ${displayTeamName(hit.fixture.awayTeam)}`
-                : 'Mecz';
-              const isExact = hit.pointType !== 'outcome';
-
-              return (
-                <div
-                  key={String(hit.id ?? `${hit.playerId}:${hit.fixtureId}`)}
-                  className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-gray-900 px-2 text-xs font-bold text-white">
-                        {index + 1}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          isExact
-                            ? 'bg-green-50 text-green-700 ring-1 ring-green-100'
-                            : 'bg-yellow-50 text-yellow-700 ring-1 ring-yellow-100'
-                        }`}
-                      >
-                        {isExact ? 'dokładny' : 'W/D/L'}
-                      </span>
-                    </div>
-                    <span className="text-base font-bold text-green-700">+{formatPoints(hit.points)}</span>
-                  </div>
-
-                  <div className="font-semibold text-gray-900 truncate">{hit.playerName}</div>
-                  <div className="mt-1 text-xs text-gray-500 truncate" title={fixtureName}>
-                    {fixtureName}
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded bg-gray-50 px-2 py-1.5">
-                      <div className="text-[10px] uppercase tracking-wider text-gray-400">Typ</div>
-                      <div className="font-mono font-semibold text-gray-800">
-                        {hit.betHomeScore}:{hit.betAwayScore}
-                      </div>
-                    </div>
-                    <div className="rounded bg-green-50 px-2 py-1.5">
-                      <div className="text-[10px] uppercase tracking-wider text-green-600">Wynik</div>
-                      <div className="font-mono font-semibold text-green-800">
-                        {hit.resultHomeScore}:{hit.resultAwayScore}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <BestHitsSection
+        hits={data.bestHits}
+        leaderIds={leaderIds}
+        currentPlayerId={playerId ?? undefined}
+      />
 
       {data.board.length > 0 && (
         <MatchStatsSection stats={data.matchStats} leaderIds={leaderIds} currentPlayerId={playerId ?? undefined} />
       )}
+
+      <AlmostHitsSection
+        hits={data.almostHits}
+        leaderIds={leaderIds}
+        currentPlayerId={playerId ?? undefined}
+      />
     </div>
   );
 }
