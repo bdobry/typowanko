@@ -12,7 +12,6 @@ import { LeaderboardProgressChart } from '../components/LeaderboardProgressChart
 import { displayTeamName } from '../utils/displayNames';
 import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
 import { AlmostHitsSection } from '../components/leaderboard/AlmostHitsSection';
-import { BestHitsSection } from '../components/leaderboard/BestHitsSection';
 import { ExactResultOddsSection } from '../components/leaderboard/ExactResultOddsSection';
 import { FormDots } from '../components/leaderboard/FormDots';
 import { MatchStatsSection } from '../components/leaderboard/MatchStatsSection';
@@ -311,12 +310,6 @@ export function Leaderboard() {
           </div>
         )
       )}
-
-      <BestHitsSection
-        hits={data.bestHits}
-        leaderIds={leaderIds}
-        currentPlayerId={playerId ?? undefined}
-      />
 
       {data.board.length > 0 && (
         <MatchStatsSection

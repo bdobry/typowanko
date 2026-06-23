@@ -204,18 +204,6 @@ export interface LeaderboardMissedOutcomeOddGroup {
   entries: LeaderboardMissedOdd[];
 }
 
-export interface LeaderboardBestHit {
-  id: string;
-  player: Player;
-  fixture: Fixture;
-  points: number;
-  betHomeScore: number;
-  betAwayScore: number;
-  resultHomeScore: number;
-  resultAwayScore: number;
-  pointType: 'exact' | 'outcome';
-}
-
 export interface LeaderboardExactResultOddHit {
   id: string;
   player: Player;
@@ -279,7 +267,6 @@ export interface LeaderboardData {
   lastFixture: Fixture | null;
   timeline: LeaderboardTimelinePoint[];
   recentEvents: LeaderboardEventGroup[];
-  bestHits: LeaderboardBestHit[];
   almostHits: LeaderboardAlmostHit[];
   exactResultOdds: LeaderboardExactResultOddMatch[];
   streaks: {
@@ -546,29 +533,6 @@ function buildRows(
       };
     }),
   );
-}
-
-function bestHitGroupKey(hit: LeaderboardBestHit) {
-  return [
-    hit.fixture.id,
-    hit.pointType,
-    hit.points,
-    hit.resultHomeScore,
-    hit.resultAwayScore,
-  ].join(':');
-}
-
-function takeBestHitsWithCutoffGroup(hits: LeaderboardBestHit[], limit: number) {
-  if (hits.length <= limit) return hits;
-
-  const cutoffGroupKey = bestHitGroupKey(hits[limit - 1]);
-  let endIndex = limit;
-
-  while (endIndex < hits.length && bestHitGroupKey(hits[endIndex]) === cutoffGroupKey) {
-    endIndex += 1;
-  }
-
-  return hits.slice(0, endIndex);
 }
 
 function buildBetsByFixtureId(bets: Bet[]) {
@@ -1220,34 +1184,6 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     })
     .slice(0, 10);
 
-  const sortedBestHits = scores
-    .map((score) => {
-      const player = playerMap.get(score.playerId);
-      const fixture = fixtureMap.get(score.fixtureId);
-      if (!player || !fixture) return null;
-
-      return {
-        id: String(score.id ?? `${score.playerId}:${score.fixtureId}`),
-        player,
-        fixture,
-        points: roundPoints(score.points),
-        betHomeScore: score.betHomeScore,
-        betAwayScore: score.betAwayScore,
-        resultHomeScore: score.resultHomeScore,
-        resultAwayScore: score.resultAwayScore,
-        pointType: score.pointType === 'outcome' ? 'outcome' : 'exact',
-      } satisfies LeaderboardBestHit;
-    })
-    .filter((hit): hit is LeaderboardBestHit => hit != null)
-    .sort((a, b) => {
-      if (b.points !== a.points) return b.points - a.points;
-      const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
-      if (fixtureDelta !== 0) return fixtureDelta;
-      if (a.pointType !== b.pointType) return a.pointType === 'exact' ? -1 : 1;
-      return a.player.name.localeCompare(b.player.name, 'pl-PL');
-    });
-  const bestHits = takeBestHitsWithCutoffGroup(sortedBestHits, 10);
-
   return {
     board,
     lockedCount: lockedFixtures.length,
@@ -1255,7 +1191,6 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     lastFixture,
     timeline,
     recentEvents,
-    bestHits,
     almostHits,
     exactResultOdds,
     streaks,
