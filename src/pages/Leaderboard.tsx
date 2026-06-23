@@ -16,6 +16,7 @@ import { BestHitsSection } from '../components/leaderboard/BestHitsSection';
 import { ExactResultOddsSection } from '../components/leaderboard/ExactResultOddsSection';
 import { FormDots } from '../components/leaderboard/FormDots';
 import { MatchStatsSection } from '../components/leaderboard/MatchStatsSection';
+import { SocialStatsSection } from '../components/leaderboard/SocialStatsSection';
 import {
   fixtureResultLabel,
   formatPoints,
@@ -321,6 +322,14 @@ export function Leaderboard() {
         <MatchStatsSection
           stats={data.matchStats}
           topPointStreaks={data.topPointStreaks}
+          leaderIds={leaderIds}
+          currentPlayerId={playerId ?? undefined}
+        />
+      )}
+
+      {data.board.length > 0 && (
+        <SocialStatsSection
+          stats={data.socialStats}
           leaderIds={leaderIds}
           currentPlayerId={playerId ?? undefined}
         />

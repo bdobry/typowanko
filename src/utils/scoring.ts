@@ -5,7 +5,9 @@ export function scoreKey(h: number, a: number) {
   return `${h}:${a}`;
 }
 
-function getOutcome(home: number, away: number): 'home' | 'draw' | 'away' {
+type MatchOutcome = 'home' | 'draw' | 'away';
+
+function getOutcome(home: number, away: number): MatchOutcome {
   if (home > away) return 'home';
   if (home < away) return 'away';
   return 'draw';
@@ -225,6 +227,51 @@ export interface LeaderboardExactResultOddMatch {
   hits: LeaderboardExactResultOddHit[];
 }
 
+export interface LeaderboardCrowdContrarianEvent {
+  id: string;
+  player: Player;
+  fixture: Fixture;
+  points: number;
+  betHomeScore: number;
+  betAwayScore: number;
+  crowdOutcome: MatchOutcome;
+  playerOutcome: MatchOutcome;
+  crowdCount: number;
+  playerOutcomeCount: number;
+  totalBets: number;
+  pointType?: 'exact' | 'outcome';
+}
+
+export interface LeaderboardCrowdContrarianRow {
+  player: Player;
+  againstCount: number;
+  hitCount: number;
+  points: number;
+  averagePoints: number;
+  bestEvent: LeaderboardCrowdContrarianEvent | null;
+}
+
+export interface LeaderboardSimilarPair {
+  id: string;
+  players: [Player, Player];
+  sharedBetCount: number;
+  sharedHitCount: number;
+  exactMatchCount: number;
+  exactMatchHitCount: number;
+  outcomeMatchCount: number;
+  outcomeMatchHitCount: number;
+  outcomeOnlyMatchCount: number;
+  similarHitCount: number;
+  similarity: number;
+  lastCommonFixture: Fixture | null;
+}
+
+export interface LeaderboardSocialStats {
+  contrarianRows: LeaderboardCrowdContrarianRow[];
+  contrarianHits: LeaderboardCrowdContrarianEvent[];
+  similarPairs: LeaderboardSimilarPair[];
+}
+
 export interface LeaderboardData {
   board: LeaderboardRow[];
   lockedCount: number;
@@ -254,6 +301,7 @@ export interface LeaderboardData {
     };
     fullyHitFixtures: LeaderboardMatchPoints[];
   };
+  socialStats: LeaderboardSocialStats;
 }
 
 function roundPoints(value: number) {
@@ -521,6 +569,230 @@ function takeBestHitsWithCutoffGroup(hits: LeaderboardBestHit[], limit: number) 
   }
 
   return hits.slice(0, endIndex);
+}
+
+function buildBetsByFixtureId(bets: Bet[]) {
+  const betsByFixtureId = new Map<string, Bet[]>();
+  for (const bet of bets) {
+    const entries = betsByFixtureId.get(bet.fixtureId) ?? [];
+    entries.push(bet);
+    betsByFixtureId.set(bet.fixtureId, entries);
+  }
+  return betsByFixtureId;
+}
+
+function exactBetMatch(a: Bet, b: Bet) {
+  return a.homeScore === b.homeScore && a.awayScore === b.awayScore;
+}
+
+function isExactScore(score: StoredScoreEntry | undefined) {
+  return score != null && score.pointType !== 'outcome';
+}
+
+function uniqueMajorityOutcome(bets: Bet[]) {
+  const counts = new Map<MatchOutcome, number>([
+    ['home', 0],
+    ['draw', 0],
+    ['away', 0],
+  ]);
+
+  for (const bet of bets) {
+    const outcome = getOutcome(bet.homeScore, bet.awayScore);
+    counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+  }
+
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const [winner, runnerUp] = ranked;
+  if (!winner || winner[1] === 0 || winner[1] === runnerUp?.[1]) return null;
+
+  return {
+    outcome: winner[0],
+    count: winner[1],
+    counts,
+  };
+}
+
+function buildSocialStats(
+  players: Player[],
+  fixturesByKickoff: Fixture[],
+  lockedFixtures: Fixture[],
+  bets: Bet[],
+  playerMap: Map<string, Player>,
+  scoreByPlayerFixture: Map<string, StoredScoreEntry>,
+): LeaderboardSocialStats {
+  const betsByFixtureId = buildBetsByFixtureId(bets);
+  const betByPlayerFixture = new Map(bets.map((bet) => [`${bet.playerId}:${bet.fixtureId}`, bet]));
+  const contrarianRowsByPlayerId = new Map<string, LeaderboardCrowdContrarianRow>();
+  const contrarianHits: LeaderboardCrowdContrarianEvent[] = [];
+
+  for (const fixture of lockedFixtures) {
+    const fixtureBets = betsByFixtureId.get(fixture.id) ?? [];
+    if (fixtureBets.length < 2) continue;
+
+    const majority = uniqueMajorityOutcome(fixtureBets);
+    if (!majority) continue;
+
+    for (const bet of fixtureBets) {
+      const player = playerMap.get(bet.playerId);
+      if (!player) continue;
+
+      const playerOutcome = getOutcome(bet.homeScore, bet.awayScore);
+      if (playerOutcome === majority.outcome) continue;
+
+      const score = scoreByPlayerFixture.get(`${bet.playerId}:${fixture.id}`);
+      const points = roundPoints(score?.points ?? 0);
+      const event: LeaderboardCrowdContrarianEvent = {
+        id: String(bet.id ?? `${bet.playerId}:${fixture.id}`),
+        player,
+        fixture,
+        points,
+        betHomeScore: bet.homeScore,
+        betAwayScore: bet.awayScore,
+        crowdOutcome: majority.outcome,
+        playerOutcome,
+        crowdCount: majority.count,
+        playerOutcomeCount: majority.counts.get(playerOutcome) ?? 0,
+        totalBets: fixtureBets.length,
+        pointType: score?.pointType === 'outcome' ? 'outcome' : score ? 'exact' : undefined,
+      };
+
+      const row = contrarianRowsByPlayerId.get(player.id) ?? {
+        player,
+        againstCount: 0,
+        hitCount: 0,
+        points: 0,
+        averagePoints: 0,
+        bestEvent: null,
+      };
+      row.againstCount += 1;
+      row.points = roundPoints(row.points + points);
+      if (points > 0) row.hitCount += 1;
+      if (points > 0 && (!row.bestEvent || points > row.bestEvent.points)) {
+        row.bestEvent = event;
+      }
+      contrarianRowsByPlayerId.set(player.id, row);
+
+      if (points > 0) {
+        contrarianHits.push(event);
+      }
+    }
+  }
+
+  const contrarianRows = [...contrarianRowsByPlayerId.values()]
+    .map((row) => ({
+      ...row,
+      averagePoints: row.againstCount > 0 ? roundPoints(row.points / row.againstCount) : 0,
+    }))
+    .sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (b.hitCount !== a.hitCount) return b.hitCount - a.hitCount;
+      if (b.againstCount !== a.againstCount) return b.againstCount - a.againstCount;
+      return a.player.name.localeCompare(b.player.name, 'pl-PL');
+    });
+
+  contrarianHits.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    const fixtureDelta = compareFixturesByKickoff(b.fixture, a.fixture);
+    if (fixtureDelta !== 0) return fixtureDelta;
+    return a.player.name.localeCompare(b.player.name, 'pl-PL');
+  });
+
+  const similarPairs: LeaderboardSimilarPair[] = [];
+  for (let firstIndex = 0; firstIndex < players.length; firstIndex += 1) {
+    const firstPlayer = players[firstIndex];
+    for (let secondIndex = firstIndex + 1; secondIndex < players.length; secondIndex += 1) {
+      const secondPlayer = players[secondIndex];
+      let sharedBetCount = 0;
+      let sharedHitCount = 0;
+      let exactMatchCount = 0;
+      let exactMatchHitCount = 0;
+      let outcomeMatchCount = 0;
+      let outcomeMatchHitCount = 0;
+      let outcomeOnlyMatchCount = 0;
+      let similarHitCount = 0;
+      let lastCommonFixture: Fixture | null = null;
+
+      for (const fixture of fixturesByKickoff) {
+        const firstBet = betByPlayerFixture.get(`${firstPlayer.id}:${fixture.id}`);
+        const secondBet = betByPlayerFixture.get(`${secondPlayer.id}:${fixture.id}`);
+        if (!firstBet || !secondBet) continue;
+
+        sharedBetCount += 1;
+        lastCommonFixture = fixture;
+        let isSimilarBet = false;
+        const firstScore = scoreByPlayerFixture.get(`${firstPlayer.id}:${fixture.id}`);
+        const secondScore = scoreByPlayerFixture.get(`${secondPlayer.id}:${fixture.id}`);
+        const firstPoints = firstScore?.points ?? 0;
+        const secondPoints = secondScore?.points ?? 0;
+        const bothScored = firstPoints > 0 && secondPoints > 0;
+        const bothExact = isExactScore(firstScore) && isExactScore(secondScore);
+        if (bothScored) {
+          sharedHitCount += 1;
+        }
+
+        if (exactBetMatch(firstBet, secondBet)) {
+          exactMatchCount += 1;
+          outcomeMatchCount += 1;
+          isSimilarBet = true;
+          if (bothScored) {
+            outcomeMatchHitCount += 1;
+          }
+          if (bothExact) {
+            exactMatchHitCount += 1;
+          }
+        } else if (
+          getOutcome(firstBet.homeScore, firstBet.awayScore) ===
+          getOutcome(secondBet.homeScore, secondBet.awayScore)
+        ) {
+          outcomeMatchCount += 1;
+          outcomeOnlyMatchCount += 1;
+          isSimilarBet = true;
+          if (bothScored) {
+            outcomeMatchHitCount += 1;
+          }
+        }
+
+        if (isSimilarBet) {
+          if (bothScored) {
+            similarHitCount += 1;
+          }
+        }
+      }
+
+      if (sharedBetCount === 0) continue;
+
+      similarPairs.push({
+        id: `${firstPlayer.id}:${secondPlayer.id}`,
+        players: [firstPlayer, secondPlayer],
+        sharedBetCount,
+        sharedHitCount,
+        exactMatchCount,
+        exactMatchHitCount,
+        outcomeMatchCount,
+        outcomeMatchHitCount,
+        outcomeOnlyMatchCount,
+        similarHitCount,
+        similarity: roundPoints(((exactMatchCount * 2 + outcomeOnlyMatchCount) / (sharedBetCount * 2)) * 100),
+        lastCommonFixture,
+      });
+    }
+  }
+
+  similarPairs.sort((a, b) => {
+    if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+    if (b.sharedBetCount !== a.sharedBetCount) return b.sharedBetCount - a.sharedBetCount;
+    if (b.exactMatchCount !== a.exactMatchCount) return b.exactMatchCount - a.exactMatchCount;
+    return `${a.players[0].name} ${a.players[1].name}`.localeCompare(
+      `${b.players[0].name} ${b.players[1].name}`,
+      'pl-PL',
+    );
+  });
+
+  return {
+    contrarianRows,
+    contrarianHits,
+    similarPairs,
+  };
 }
 
 export async function getLeaderboardData(): Promise<LeaderboardData> {
@@ -811,6 +1083,14 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
   };
 
   const fixturesByKickoff = [...fixtures].sort(compareFixturesByKickoff);
+  const socialStats = buildSocialStats(
+    players,
+    fixturesByKickoff,
+    lockedFixtures,
+    bets,
+    playerMap,
+    scoreByPlayerFixture,
+  );
   const fixtureOrderIndexById = new Map(fixturesByKickoff.map((fixture, index) => [fixture.id, index]));
   const fixtureIdsWithOdds = new Set<string>();
   for (const odd of odds as Odd[]) {
@@ -981,5 +1261,6 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     streaks,
     topPointStreaks,
     matchStats,
+    socialStats,
   };
 }
