@@ -45,7 +45,7 @@ export function formResultLabel(result: LeaderboardFormEntry['result'], points: 
   if (result === 'upcoming') return 'Najbliższy mecz';
   if (result === 'none') return 'Brak obstawienia';
   if (result === 'miss') return 'Nietrafione';
-  return `${result === 'exact' ? 'Dokładny wynik' : 'Trafiony W/D/L'} +${formatPoints(points)} pkt`;
+  return `${result === 'exact' ? 'Dokładny wynik' : 'Trafiony 1X2'} +${formatPoints(points)} pkt`;
 }
 
 export function matchCountLabel(count: number) {

@@ -16,6 +16,7 @@ import { ExactResultOddsSection } from '../components/leaderboard/ExactResultOdd
 import { FormDots } from '../components/leaderboard/FormDots';
 import { MatchStatsSection } from '../components/leaderboard/MatchStatsSection';
 import { SocialStatsSection } from '../components/leaderboard/SocialStatsSection';
+import { PlayerOnlineStatusDot } from '../components/PlayerOnlineStatus';
 import {
   fixtureResultLabel,
   formatPoints,
@@ -153,12 +154,13 @@ export function Leaderboard() {
                   <th className="px-4 py-2.5 text-left">Gracz</th>
                   <th className="px-4 py-2.5 text-left">Punkty</th>
                   <th className="px-4 py-2.5 text-center">Dokładne</th>
-                  <th className="px-4 py-2.5 text-center">W/D/L</th>
+                  <th className="px-4 py-2.5 text-center">1X2</th>
                   <th className="px-4 py-2.5 text-center">Forma</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {data.board.map((row) => {
+                  const openPlayerProfile = () => setHistoryPlayer(row.player);
                   const rankClass =
                     row.currentPosition === 1
                       ? 'bg-yellow-100 text-yellow-800 ring-yellow-200'
@@ -174,7 +176,16 @@ export function Leaderboard() {
                   return (
                     <tr
                       key={row.player.id}
-                      className={`transition-colors hover:bg-green-50/40 ${
+                      role="button"
+                      tabIndex={0}
+                      onClick={openPlayerProfile}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openPlayerProfile();
+                        }
+                      }}
+                      className={`group cursor-pointer transition-colors hover:bg-green-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-green-600 ${
                         row.currentPosition === 1 ? 'bg-yellow-50/60' : 'bg-white'
                       }`}
                     >
@@ -187,13 +198,12 @@ export function Leaderboard() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => setHistoryPlayer(row.player)}
-                          className="text-left font-semibold text-gray-900 hover:text-green-700 transition-colors"
-                        >
-                          {formatPlayerName(row.player, leaderIds)}
-                        </button>
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <PlayerOnlineStatusDot lastOnlineAt={row.player.lastOnlineAt} />
+                          <span className="text-left font-semibold text-gray-900 transition-colors group-hover:text-green-700">
+                            {formatPlayerName(row.player, leaderIds)}
+                          </span>
+                        </span>
                         {row.player.id === playerId && (
                           <span className="ml-2 text-[10px] text-blue-600 bg-blue-100 rounded-full px-2 py-0.5">
                             ty
