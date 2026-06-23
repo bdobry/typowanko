@@ -6,8 +6,10 @@ import type {
   LeaderboardMatchPoints,
   LeaderboardMissedOdd,
   LeaderboardMissedOutcomeOddGroup,
+  LeaderboardPointStreak,
 } from '../../utils/scoring';
 import { formatPlayerName } from '../../utils/playerNames';
+import { FormDots } from './FormDots';
 import {
   fixtureScoreLabel,
   fixtureTeamsLabel,
@@ -225,13 +227,69 @@ function MissedOutcomeOddGroup({
   );
 }
 
+function TopPointStreaksCard({
+  streaks,
+  leaderIds,
+  currentPlayerId,
+}: {
+  streaks: LeaderboardPointStreak[];
+  leaderIds: ReadonlySet<string>;
+  currentPlayerId?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Najbardziej punktodajne serie</h3>
+        <span className="shrink-0 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 ring-1 ring-green-100">
+          top 5
+        </span>
+      </div>
+      <p className="mb-2 text-xs leading-relaxed text-gray-400">
+        Ciągłe serie meczów z punktami, posortowane według sumy punktów.
+      </p>
+      {streaks.length > 0 ? (
+        <div className="divide-y divide-gray-100">
+          {streaks.map((streak, index) => (
+            <div key={streak.id} className="py-2 first:pt-0 last:pb-0">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="min-w-0 truncate text-sm font-semibold text-gray-900">
+                  {index + 1}. {formatPlayerName(streak.player, leaderIds)}
+                  {streak.player.id === currentPlayerId && (
+                    <span className="ml-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">
+                      ty
+                    </span>
+                  )}
+                </div>
+                <span className="shrink-0 text-sm font-bold text-green-700">
+                  {formatPoints(streak.points)} pkt
+                </span>
+              </div>
+              <div className="mt-1.5 overflow-x-auto pb-0.5">
+                <FormDots entries={streak.entries} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="py-4 text-sm text-gray-400">Brak serii punktowych.</p>
+      )}
+    </div>
+  );
+}
+
 interface MatchStatsSectionProps {
   stats: LeaderboardData['matchStats'];
+  topPointStreaks: LeaderboardPointStreak[];
   leaderIds: ReadonlySet<string>;
   currentPlayerId?: string;
 }
 
-export function MatchStatsSection({ stats, leaderIds, currentPlayerId }: MatchStatsSectionProps) {
+export function MatchStatsSection({
+  stats,
+  topPointStreaks,
+  leaderIds,
+  currentPlayerId,
+}: MatchStatsSectionProps) {
   if (
     stats.topScoring.length === 0 &&
     stats.zeroHitFixtures.length === 0 &&
@@ -241,7 +299,8 @@ export function MatchStatsSection({ stats, leaderIds, currentPlayerId }: MatchSt
     stats.missedOdds.lowestOutcome.length === 0 &&
     stats.missedOdds.highestOutcome.length === 0 &&
     stats.missedOdds.highest.length === 0 &&
-    stats.fullyHitFixtures.length === 0
+    stats.fullyHitFixtures.length === 0 &&
+    topPointStreaks.length === 0
   ) {
     return null;
   }
@@ -432,6 +491,11 @@ export function MatchStatsSection({ stats, leaderIds, currentPlayerId }: MatchSt
             <p className="py-4 text-sm text-gray-400">Brak nietrafionych typów z zapisanym wynikiem.</p>
           )}
         </div>
+        <TopPointStreaksCard
+          streaks={topPointStreaks}
+          leaderIds={leaderIds}
+          currentPlayerId={currentPlayerId}
+        />
       </div>
     </div>
   );

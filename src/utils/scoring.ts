@@ -138,6 +138,13 @@ export interface LeaderboardStreak {
   winners: LeaderboardStreakWinner[];
 }
 
+export interface LeaderboardPointStreak {
+  id: string;
+  player: Player;
+  points: number;
+  entries: LeaderboardFormEntry[];
+}
+
 export interface LeaderboardMatchPoints {
   fixture: Fixture;
   totalPoints: number;
@@ -233,6 +240,7 @@ export interface LeaderboardData {
     exact: LeaderboardStreak;
     miss: LeaderboardStreak;
   };
+  topPointStreaks: LeaderboardPointStreak[];
   matchStats: {
     topScoring: LeaderboardMatchPoints[];
     zeroHitFixtures: LeaderboardMatchPoints[];
@@ -372,6 +380,57 @@ function buildStreak(
   }
 
   return { bestLength, winners };
+}
+
+function buildTopPointStreaks(
+  rows: LeaderboardRow[],
+  fullFormByPlayerId: Map<string, LeaderboardFormEntry[]>,
+  fixtureOrderById: Map<string, number>,
+  limit: number,
+): LeaderboardPointStreak[] {
+  const streaks: LeaderboardPointStreak[] = [];
+
+  for (const row of rows) {
+    let current: LeaderboardFormEntry[] = [];
+
+    const saveCurrent = () => {
+      if (current.length === 0) return;
+
+      const firstFixtureId = current[0]?.fixture.id ?? '';
+      const lastFixtureId = current.at(-1)?.fixture.id ?? '';
+      streaks.push({
+        id: `${row.player.id}:${firstFixtureId}:${lastFixtureId}`,
+        player: row.player,
+        points: roundPoints(current.reduce((acc, entry) => acc + entry.points, 0)),
+        entries: current,
+      });
+    };
+
+    for (const entry of fullFormByPlayerId.get(row.player.id) ?? []) {
+      if (entry.result === 'exact' || entry.result === 'outcome') {
+        current = [...current, entry];
+      } else {
+        saveCurrent();
+        current = [];
+      }
+    }
+
+    saveCurrent();
+  }
+
+  return streaks
+    .filter((streak) => streak.points > 0)
+    .sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (b.entries.length !== a.entries.length) return b.entries.length - a.entries.length;
+
+      const aLastIndex = fixtureOrderById.get(a.entries.at(-1)?.fixture.id ?? '') ?? -1;
+      const bLastIndex = fixtureOrderById.get(b.entries.at(-1)?.fixture.id ?? '') ?? -1;
+      if (bLastIndex !== aLastIndex) return bLastIndex - aLastIndex;
+
+      return a.player.name.localeCompare(b.player.name, 'pl-PL');
+    })
+    .slice(0, limit);
 }
 
 function resultOrder(result: LeaderboardFormEntry['result']) {
@@ -835,6 +894,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
         bestMatchingRunIgnoringNeutral(entries, predicate, (entry) => entry.result === 'none'),
     ),
   };
+  const topPointStreaks = buildTopPointStreaks(board, fullFormByPlayerId, fixtureOrderById, 5);
   const groupedEvents = new Map<string, LeaderboardEventGroup>();
   for (const event of scores
     .map((score) => {
@@ -919,6 +979,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     almostHits,
     exactResultOdds,
     streaks,
+    topPointStreaks,
     matchStats,
   };
 }
