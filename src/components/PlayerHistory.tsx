@@ -804,7 +804,7 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
             <MetricTile
               label="Średnie ryzyko"
               value={`D ${formatOdd(exactRisk)} · W ${formatOdd(outcomeRisk)}`}
-              detail={`${exactRiskSamples} obstawień`}
+              detail={`${exactRiskSamples} dokł. · ${outcomeRiskSamples} 1X2`}
               rankLabel={riskRankLabel}
               tooltip="Średni kurs typowanych wyników i rozstrzygnięć. Ranking liczony jest po kursie dokładnego wyniku: wyższy kurs oznacza wyższe ryzyko."
             />
