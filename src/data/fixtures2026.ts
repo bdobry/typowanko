@@ -57,7 +57,7 @@ export const WC2026_FIXTURES: Omit<Fixture, 'status'>[] = [
   { id: 'H2', round: 'Matchday 5', group: 'Group H', homeTeam: 'Saudi Arabia', awayTeam: 'Uruguay', date: '2026-06-15', utcTime: '22:00', venue: 'Miami' },
   { id: 'H3', round: 'Matchday 11', group: 'Group H', homeTeam: 'Spain', awayTeam: 'Saudi Arabia', date: '2026-06-21', utcTime: '16:00', venue: 'Atlanta' },
   { id: 'H4', round: 'Matchday 11', group: 'Group H', homeTeam: 'Uruguay', awayTeam: 'Cape Verde', date: '2026-06-21', utcTime: '22:00', venue: 'Miami' },
-  { id: 'H5', round: 'Matchday 16', group: 'Group H', homeTeam: 'Cape Verde', awayTeam: 'Saudi Arabia', date: '2026-06-26', utcTime: '00:00', venue: 'Houston' },
+  { id: 'H5', round: 'Matchday 16', group: 'Group H', homeTeam: 'Cape Verde', awayTeam: 'Saudi Arabia', date: '2026-06-27', utcTime: '00:00', venue: 'Houston' },
   { id: 'H6', round: 'Matchday 16', group: 'Group H', homeTeam: 'Uruguay', awayTeam: 'Spain', date: '2026-06-27', utcTime: '00:00', venue: 'Guadalajara' },
   // ── GROUP I ──────────────────────────────────────────────────────────────────
   { id: 'I1', round: 'Matchday 6', group: 'Group I', homeTeam: 'France', awayTeam: 'Senegal', date: '2026-06-16', utcTime: '19:00', venue: 'New York/New Jersey' },

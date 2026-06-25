@@ -110,6 +110,20 @@ export class TypowankoDb extends Dexie {
           await fixtures.update('D1', { date: '2026-06-13' });
         }
       });
+    this.version(4)
+      .stores({})
+      .upgrade(async (tx) => {
+        const fixtures = tx.table('fixtures');
+        const capeVerdeSaudiArabia = await fixtures.get('H5');
+        if (
+          capeVerdeSaudiArabia?.homeTeam === 'Cape Verde' &&
+          capeVerdeSaudiArabia?.awayTeam === 'Saudi Arabia' &&
+          capeVerdeSaudiArabia.date === '2026-06-26' &&
+          capeVerdeSaudiArabia.utcTime === '00:00'
+        ) {
+          await fixtures.update('H5', { date: '2026-06-27' });
+        }
+      });
   }
 }
 

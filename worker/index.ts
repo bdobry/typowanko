@@ -225,6 +225,24 @@ function playerIdsFromSnapshot(snapshot: SnapshotRecord) {
     .filter((id): id is string => Boolean(id));
 }
 
+// Temporary guard for cloud leagues created before migration 0002 fixed this fixture date.
+function applyCapeVerdeSaudiArabiaDateCorrection(snapshot: SnapshotRecord) {
+  let changed = false;
+  for (const fixture of snapshot.fixtures) {
+    if (
+      fixture.id === 'H5' &&
+      fixture.homeTeam === 'Cape Verde' &&
+      fixture.awayTeam === 'Saudi Arabia' &&
+      fixture.date === '2026-06-26' &&
+      fixture.utcTime === '00:00'
+    ) {
+      fixture.date = '2026-06-27';
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function timestampValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
@@ -647,6 +665,7 @@ async function createLeague(request: Request, env: Env) {
   if (!validateSnapshot(body.snapshot)) {
     return errorResponse(400, 'Snapshot must include players, fixtures, odds, bets, scores and matchOdds arrays.');
   }
+  applyCapeVerdeSaudiArabiaDateCorrection(body.snapshot);
 
   const leagueId = randomToken(6);
   const hostCode = randomToken(8);
@@ -699,13 +718,15 @@ async function fetchSnapshot(request: Request, env: Env, leagueId: string) {
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
+  const scheduleChanged = applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
 
   let responseLeague = league;
   let responseSnapshot = snapshot;
   let updatedAt = league.updated_at;
-  if (auth.role === 'player') {
+  if (scheduleChanged || auth.role === 'player') {
     const now = Date.now();
-    if (markPlayerOnline(snapshot, auth.playerId, now)) {
+    const presenceChanged = auth.role === 'player' && markPlayerOnline(snapshot, auth.playerId, now);
+    if (scheduleChanged || presenceChanged) {
       const result = await env.DB.prepare(
         'UPDATE leagues SET snapshot_json = ?, updated_at = ? WHERE id = ? AND revision = ?',
       ).bind(JSON.stringify(snapshot), now, league.id, league.revision).run();
@@ -716,6 +737,7 @@ async function fetchSnapshot(request: Request, env: Env, leagueId: string) {
         if (!validateSnapshot(latestSnapshot)) {
           return errorResponse(500, 'Stored league snapshot is invalid.');
         }
+        applyCapeVerdeSaudiArabiaDateCorrection(latestSnapshot);
         responseLeague = latestLeague;
         responseSnapshot = latestSnapshot;
         updatedAt = latestLeague.updated_at;
@@ -748,6 +770,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
   if (!validateSnapshot(body.snapshot)) {
     return errorResponse(400, 'Snapshot must include players, fixtures, odds, bets, scores and matchOdds arrays.');
   }
+  applyCapeVerdeSaudiArabiaDateCorrection(body.snapshot);
   if (body.baseRevision !== league.revision) {
     return jsonResponse({
       error: 'Cloud snapshot changed since the last sync.',
@@ -758,6 +781,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
   const snapshot = body.snapshot;
   const cloudSnapshot = JSON.parse(league.snapshot_json) as unknown;
   if (validateSnapshot(cloudSnapshot)) {
+    applyCapeVerdeSaudiArabiaDateCorrection(cloudSnapshot);
     mergePlayerPresence(snapshot, cloudSnapshot);
   }
 
@@ -866,6 +890,7 @@ async function updatePlayerBetFromBody(
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
+  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
 
   const playerExists = snapshot.players.some((player) => player.id === auth.playerId);
   if (!playerExists) {
@@ -945,6 +970,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
+  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
 
   const now = Date.now();
   const lastCheckedAt = timestampValue(snapshot.autoResultsLastCheckedAt);
@@ -1028,6 +1054,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
     if (!validateSnapshot(latestSnapshot)) {
       return errorResponse(500, 'Stored league snapshot is invalid.');
     }
+    applyCapeVerdeSaudiArabiaDateCorrection(latestSnapshot);
 
     return jsonResponse({
       leagueId,
@@ -1173,6 +1200,7 @@ async function rotatePlayerCodes(request: Request, env: Env, leagueId: string) {
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
+  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
 
   const now = Date.now();
   const playerCodes = await regeneratePlayerCodes(
