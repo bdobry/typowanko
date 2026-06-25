@@ -1,5 +1,9 @@
 import { db, type Bet, type Fixture, type MatchOdd, type Odd, type Player, type ScoreEntry } from '../db';
 import { compareFixturesByKickoff, hasFixtureStarted } from './fixtureTime';
+import {
+  buildLeaderboardPeriodOptions,
+  type LeaderboardPeriodOption,
+} from './leaderboardPeriods';
 
 export function scoreKey(h: number, a: number) {
   return `${h}:${a}`;
@@ -260,11 +264,26 @@ export interface LeaderboardSocialStats {
   similarPairs: LeaderboardSimilarPair[];
 }
 
+export interface LeaderboardPeriodRow {
+  player: Player;
+  total: number;
+  exactHits: number;
+  outcomeHits: number;
+  recentForm: LeaderboardFormEntry[];
+  currentPosition: number;
+}
+
+export interface LeaderboardPeriodLeaderboard {
+  option: LeaderboardPeriodOption;
+  rows: LeaderboardPeriodRow[];
+}
+
 export interface LeaderboardData {
   board: LeaderboardRow[];
   lockedCount: number;
   totalFixtures: number;
   lastFixture: Fixture | null;
+  periodLeaderboards: LeaderboardPeriodLeaderboard[];
   timeline: LeaderboardTimelinePoint[];
   recentEvents: LeaderboardEventGroup[];
   almostHits: LeaderboardAlmostHit[];
@@ -535,6 +554,22 @@ function buildRows(
   );
 }
 
+function buildPeriodRows(
+  players: Player[],
+  scores: StoredScoreEntry[],
+  bets: Bet[],
+  recentFixtures: Fixture[],
+): LeaderboardPeriodRow[] {
+  return assignPositions(buildRows(players, scores, bets, new Map(), recentFixtures)).map((row) => ({
+    player: row.player,
+    total: row.total,
+    exactHits: row.exactHits,
+    outcomeHits: row.outcomeHits,
+    recentForm: row.recentForm,
+    currentPosition: row.currentPosition,
+  }));
+}
+
 function buildBetsByFixtureId(bets: Bet[]) {
   const betsByFixtureId = new Map<string, Bet[]>();
   for (const bet of bets) {
@@ -759,7 +794,7 @@ function buildSocialStats(
   };
 }
 
-export async function getLeaderboardData(): Promise<LeaderboardData> {
+export async function getLeaderboardData(now = Date.now()): Promise<LeaderboardData> {
   const [players, allScores, fixtures, bets, odds, matchOdds] = await Promise.all([
     db.players.toArray(),
     db.scores.toArray(),
@@ -791,7 +826,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     ? scores.filter((score) => score.fixtureId !== lastFixture.id)
     : scores;
   const nextUpcomingFixture = fixtures
-    .filter((fixture) => fixture.status !== 'locked' && !hasFixtureStarted(fixture))
+    .filter((fixture) => fixture.status !== 'locked' && !hasFixtureStarted(fixture, now))
     .sort(compareFixturesByKickoff)[0];
   const recentFixtures = [
     ...(nextUpcomingFixture ? [nextUpcomingFixture] : []),
@@ -810,6 +845,24 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
       currentPosition,
       previousPosition,
       positionDelta: previousPosition - currentPosition,
+    };
+  });
+  const periodLeaderboards = buildLeaderboardPeriodOptions(fixtures, now).map((periodOption) => {
+    const periodFixtureIds = new Set(periodOption.lockedFixtureIds);
+    const periodFixtures = periodOption.lockedFixtureIds
+      .map((fixtureId) => fixtureMap.get(fixtureId))
+      .filter((fixture): fixture is Fixture => fixture != null)
+      .sort(compareFixturesByKickoff);
+    const recentPeriodFixtures = periodFixtures.slice(-5).reverse();
+    const periodScores = periodFixtureIds.size > 0
+      ? scores.filter((score) => periodFixtureIds.has(score.fixtureId))
+      : [];
+
+    return {
+      option: periodOption,
+      rows: periodFixtureIds.size > 0
+        ? buildPeriodRows(players, periodScores, bets, recentPeriodFixtures)
+        : [],
     };
   });
 
@@ -1189,6 +1242,7 @@ export async function getLeaderboardData(): Promise<LeaderboardData> {
     lockedCount: lockedFixtures.length,
     totalFixtures,
     lastFixture,
+    periodLeaderboards,
     timeline,
     recentEvents,
     almostHits,
