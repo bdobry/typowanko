@@ -316,6 +316,7 @@ function roundPoints(value: number) {
 
 type LeaderboardBaseRow = Omit<LeaderboardRow, 'currentPosition' | 'previousPosition' | 'positionDelta'>;
 type LeaderboardPositionedRow = Omit<LeaderboardRow, 'previousPosition' | 'positionDelta'>;
+const PERIOD_FORM_FIXTURE_LIMIT = 6;
 
 function sortRows(rows: LeaderboardBaseRow[]) {
   return [...rows].sort((a, b) => {
@@ -853,7 +854,7 @@ export async function getLeaderboardData(now = Date.now()): Promise<LeaderboardD
       .map((fixtureId) => fixtureMap.get(fixtureId))
       .filter((fixture): fixture is Fixture => fixture != null)
       .sort(compareFixturesByKickoff);
-    const recentPeriodFixtures = periodFixtures.slice(-5).reverse();
+    const recentPeriodFixtures = periodFixtures.slice(-PERIOD_FORM_FIXTURE_LIMIT).reverse();
     const periodScores = periodFixtureIds.size > 0
       ? scores.filter((score) => periodFixtureIds.has(score.fixtureId))
       : [];
