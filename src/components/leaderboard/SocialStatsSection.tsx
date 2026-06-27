@@ -6,7 +6,8 @@ import type {
 import { formatPlayerName } from '../../utils/playerNames';
 import { fixtureTeamsLabel, formatPoints } from './formatters';
 
-const ROW_LIMIT = 8;
+const CONTRARIAN_ROW_LIMIT = 10;
+const SIMILAR_PAIR_LIMIT = 8;
 const HIT_LIMIT = 4;
 const MIN_SIMILARITY = 45;
 
@@ -158,11 +159,11 @@ export function SocialStatsSection({
   leaderIds,
   currentPlayerId,
 }: SocialStatsSectionProps) {
-  const contrarianRows = stats.contrarianRows.slice(0, ROW_LIMIT);
+  const contrarianRows = stats.contrarianRows.slice(0, CONTRARIAN_ROW_LIMIT);
   const contrarianHits = stats.contrarianHits.slice(0, HIT_LIMIT);
   const similarPairs = stats.similarPairs
     .filter((pair) => pair.similarity >= MIN_SIMILARITY)
-    .slice(0, ROW_LIMIT);
+    .slice(0, SIMILAR_PAIR_LIMIT);
 
   if (contrarianRows.length === 0 && similarPairs.length === 0) {
     return null;
@@ -176,7 +177,7 @@ export function SocialStatsSection({
           <div className="mb-2 flex items-center justify-between gap-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Kontra tłumu</h3>
             <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-              top {ROW_LIMIT}
+              top {CONTRARIAN_ROW_LIMIT}
             </span>
           </div>
           {contrarianRows.length > 0 ? (
