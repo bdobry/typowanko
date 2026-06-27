@@ -10,12 +10,15 @@ import { db, getViewerDatabaseName, setActiveDatabase, setHostDatabase } from '.
 import { seedFixtures } from '../db/seed';
 import {
   createLeague,
+  deleteHostBet as deleteHostBetRequest,
   fetchLeagueSnapshot,
   getSyncApiBase,
   parseCombinedId,
   pushLeagueSnapshot,
   refreshCompletedResults as refreshCompletedResultsRequest,
   regeneratePlayerCodes as regeneratePlayerCodesRequest,
+  setFixtureBetVisibility as setFixtureBetVisibilityRequest,
+  submitHostBet as submitHostBetRequest,
   SyncApiError,
   submitPlayerBet as submitPlayerBetRequest,
   type CloudCredential,
@@ -112,6 +115,15 @@ function hasAutoResultCandidate(snapshot: Pick<TypowankoSnapshot, 'fixtures'>, n
       fixture.status !== 'locked' &&
       Number.isFinite(fixtureAutoResultEligibleAtMs(fixture)) &&
       now >= fixtureAutoResultEligibleAtMs(fixture),
+  );
+}
+
+function hasStartedHiddenFixture(snapshot: Pick<TypowankoSnapshot, 'fixtures'>, now: number) {
+  return snapshot.fixtures.some(
+    (fixture) =>
+      fixture.hideBetsUntilKickoff === true &&
+      fixture.status !== 'locked' &&
+      hasFixtureStarted(fixture, now),
   );
 }
 
@@ -272,7 +284,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       } else {
         setHostDatabase();
       }
-      await importSnapshot(response.snapshot);
+      await importSnapshot(response.snapshot, db, response.hiddenBets ?? []);
       await applyPlayerPresence(response.playerPresence);
       const credentialWithPlayerId = {
         ...parsed,
@@ -354,7 +366,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       if (role === 'viewer' || role === 'player') {
         const response = await fetchSnapshotWithCompletedResults(credential);
         setActiveDatabase(getViewerDatabaseName(credential.leagueId));
-        await importSnapshot(response.snapshot);
+        await importSnapshot(response.snapshot, db, response.hiddenBets ?? []);
         await applyPlayerPresence(response.playerPresence);
         const credentialWithPlayerId = withPlayerId(credential, response.playerId);
         const syncedAt = Date.now();
@@ -418,6 +430,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           );
         }
         const syncedAt = Date.now();
+        if (response.snapshot) {
+          setHostDatabase();
+          await importSnapshot(response.snapshot, db, response.hiddenBets ?? []);
+          snapshotToStore = response.snapshot;
+        }
         await applyPlayerPresence(response.playerPresence);
         setRevision(response.revision);
         setLastSyncAt(syncedAt);
@@ -455,15 +472,42 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }, AUTO_SYNC_DELAY_MS);
   }, [credential, role, syncNow]);
 
+  const applyAuthoritativeSnapshotResponse = useCallback(async (response: SnapshotResponse) => {
+    if (!credential || role === 'none' || role === 'local-host') return;
+
+    if (role === 'viewer' || role === 'player') {
+      setActiveDatabase(getViewerDatabaseName(credential.leagueId));
+    } else {
+      setHostDatabase();
+    }
+
+    await importSnapshot(response.snapshot, db, response.hiddenBets ?? []);
+    await applyPlayerPresence(response.playerPresence);
+    const credentialWithPlayerId = withPlayerId(credential, response.playerId);
+    const syncedAt = Date.now();
+    if (credentialWithPlayerId !== credential) {
+      setCredential(credentialWithPlayerId);
+    }
+    setRevision(response.revision);
+    setLastSyncAt(syncedAt);
+    setPending(false);
+    saveLastSyncedSnapshot(credential.leagueId, response.snapshot);
+    saveStoredSession(toStoredSession(credentialWithPlayerId, response.revision, syncedAt, cloudIds));
+  }, [cloudIds, credential, role]);
+
   const refreshCompletedResultsNow = useCallback(async () => {
     if (role === 'none') return;
     if (syncing || (role === 'host' && pending)) return;
 
     const now = Date.now();
     const localSnapshot = await exportSnapshot();
-    if (!hasAutoResultCandidate(localSnapshot, now)) return;
-    if (now - lastAutoResultRefreshAt.current < AUTO_RESULT_REFRESH_DEBOUNCE_MS) return;
-    lastAutoResultRefreshAt.current = now;
+    const shouldRefreshResults = hasAutoResultCandidate(localSnapshot, now);
+    const shouldRevealHiddenBets = role !== 'local-host' && hasStartedHiddenFixture(localSnapshot, now);
+    if (!shouldRefreshResults && !shouldRevealHiddenBets) return;
+    if (shouldRefreshResults) {
+      if (now - lastAutoResultRefreshAt.current < AUTO_RESULT_REFRESH_DEBOUNCE_MS) return;
+      lastAutoResultRefreshAt.current = now;
+    }
 
     try {
       if (role === 'local-host') {
@@ -475,24 +519,28 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
 
       if (!credential) return;
-      const response = await refreshCompletedResultsRequest(credential);
-      if (role === 'host' && shouldUseHostLocalResultFallback(response)) {
-        if (response.skippedReason === 'api_error') {
-          console.warn('Cloud automatic result refresh could not use API-Football.', response.failedFixtures);
-        }
-        const lockedFixtureIds = await refreshLocalCompletedResults(now);
-        if (lockedFixtureIds.length > 0) {
-          markDirty();
-          const message = autoResultNoticeMessage(lockedFixtureIds.length);
-          setNotice(
-            response.skippedReason === 'api_error'
-              ? `${message} Worker API-Football nie odpowiedział, więc host użył lokalnego klucza.`
-              : message,
-          );
-          return;
+      const response = shouldRefreshResults
+        ? await refreshCompletedResultsRequest(credential)
+        : await fetchLeagueSnapshot(credential);
+      if (shouldRefreshResults && role === 'host') {
+        const resultResponse = response as ResultRefreshResponse;
+        if (shouldUseHostLocalResultFallback(resultResponse)) {
+          if (resultResponse.skippedReason === 'api_error') {
+            console.warn('Cloud automatic result refresh could not use API-Football.', resultResponse.failedFixtures);
+          }
+          const lockedFixtureIds = await refreshLocalCompletedResults(now);
+          if (lockedFixtureIds.length > 0) {
+            markDirty();
+            const message = autoResultNoticeMessage(lockedFixtureIds.length);
+            setNotice(
+              resultResponse.skippedReason === 'api_error'
+                ? `${message} Worker API-Football nie odpowiedział, więc host użył lokalnego klucza.`
+                : message,
+            );
+            return;
+          }
         }
       }
-      if (response.revision === revision) return;
 
       if (role === 'viewer' || role === 'player') {
         setActiveDatabase(getViewerDatabaseName(credential.leagueId));
@@ -500,7 +548,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setHostDatabase();
       }
 
-      await importSnapshot(response.snapshot);
+      await importSnapshot(response.snapshot, db, response.hiddenBets ?? []);
       await applyPlayerPresence(response.playerPresence);
       const credentialWithPlayerId = withPlayerId(credential, response.playerId);
       const syncedAt = Date.now();
@@ -513,14 +561,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       saveLastSyncedSnapshot(credential.leagueId, response.snapshot);
       saveStoredSession(toStoredSession(credentialWithPlayerId, response.revision, syncedAt, cloudIds));
 
-      const lockedCount = response.lockedFixtureIds?.length ?? 0;
+      const lockedCount = autoResultLockedCount(response);
       if (lockedCount > 0) {
         setNotice(autoResultNoticeMessage(lockedCount));
       }
     } catch (err) {
       console.warn('Automatic result refresh failed.', err);
     }
-  }, [cloudIds, credential, markDirty, pending, revision, role, syncing]);
+  }, [cloudIds, credential, markDirty, pending, role, syncing]);
 
   const submitPlayerBet = useCallback(async (fixtureId: string, homeScore: number, awayScore: number) => {
     if (role !== 'player' || !credential) {
@@ -537,7 +585,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     try {
       const response = await submitPlayerBetRequest(credential, fixtureId, homeScore, awayScore);
       setActiveDatabase(getViewerDatabaseName(credential.leagueId));
-      await importSnapshot(response.snapshot);
+      await importSnapshot(response.snapshot, db, response.hiddenBets ?? []);
       await applyPlayerPresence(response.playerPresence);
       const credentialWithPlayerId = withPlayerId(credential, response.playerId);
       const syncedAt = Date.now();
@@ -558,6 +606,95 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setSyncing(false);
     }
   }, [credential, role]);
+
+  const submitHostBet = useCallback(async (
+    fixtureId: string,
+    targetPlayerId: string,
+    homeScore: number,
+    awayScore: number,
+  ) => {
+    if (role !== 'host' || !credential) {
+      throw new Error('Tylko cloud host może zapisać zakład gracza przez API.');
+    }
+    const fixture = await db.fixtures.get(fixtureId);
+    if (fixture && hasFixtureStarted(fixture)) {
+      throw new Error('Mecz już się rozpoczął. Zakładów nie można już zmieniać.');
+    }
+
+    setSyncing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await submitHostBetRequest(
+        credential,
+        fixtureId,
+        targetPlayerId,
+        homeScore,
+        awayScore,
+      );
+      await applyAuthoritativeSnapshotResponse(response);
+      setNotice('Zapisano zakład gracza.');
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      throw new Error(message, { cause: err });
+    } finally {
+      setSyncing(false);
+    }
+  }, [applyAuthoritativeSnapshotResponse, credential, role]);
+
+  const deleteHostBet = useCallback(async (fixtureId: string, targetPlayerId: string) => {
+    if (role !== 'host' || !credential) {
+      throw new Error('Tylko cloud host może usunąć zakład gracza przez API.');
+    }
+    const fixture = await db.fixtures.get(fixtureId);
+    if (fixture && hasFixtureStarted(fixture)) {
+      throw new Error('Mecz już się rozpoczął. Zakładów nie można już zmieniać.');
+    }
+
+    setSyncing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await deleteHostBetRequest(credential, fixtureId, targetPlayerId);
+      await applyAuthoritativeSnapshotResponse(response);
+      setNotice('Usunięto zakład gracza.');
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      throw new Error(message, { cause: err });
+    } finally {
+      setSyncing(false);
+    }
+  }, [applyAuthoritativeSnapshotResponse, credential, role]);
+
+  const setFixtureBetVisibility = useCallback(async (
+    fixtureId: string,
+    hideBetsUntilKickoff: boolean,
+  ) => {
+    if (role !== 'host' || !credential) {
+      throw new Error('Tylko cloud host może zmienić twarde ukrywanie typów.');
+    }
+
+    setSyncing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await setFixtureBetVisibilityRequest(
+        credential,
+        fixtureId,
+        hideBetsUntilKickoff,
+      );
+      await applyAuthoritativeSnapshotResponse(response);
+      setNotice(hideBetsUntilKickoff ? 'Ukryto wyniki typów do startu meczu.' : 'Odsłonięto wyniki typów.');
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setError(message);
+      throw new Error(message, { cause: err });
+    } finally {
+      setSyncing(false);
+    }
+  }, [applyAuthoritativeSnapshotResponse, credential, role]);
 
   const regeneratePlayerCodes = useCallback(async () => {
     if (role !== 'host' || !credential) {
@@ -685,6 +822,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       syncNow,
       markDirty,
       submitPlayerBet,
+      submitHostBet,
+      deleteHostBet,
+      setFixtureBetVisibility,
       regeneratePlayerCodes,
       downloadBackup,
       clearCloudSession,
@@ -706,6 +846,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       syncNow,
       markDirty,
       submitPlayerBet,
+      submitHostBet,
+      deleteHostBet,
+      setFixtureBetVisibility,
       regeneratePlayerCodes,
       downloadBackup,
       clearCloudSession,

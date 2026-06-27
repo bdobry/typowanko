@@ -15,6 +15,11 @@ import {
   hasFixtureStarted,
 } from '../utils/fixtureTime';
 import { formatPlayerName, leaderIdsFromRows } from '../utils/playerNames';
+import {
+  hideOtherBetsStorageKey,
+  readHideOtherBetsPreference,
+  shouldHideKnownBetScore,
+} from '../utils/betVisibility';
 
 const NEXT_24H_MS = 24 * 60 * 60 * 1000;
 
@@ -110,9 +115,10 @@ function pluralizePeople(count: number) {
 }
 
 export function Fixtures() {
-  const { isPlayer, playerId } = useSync();
+  const { isPlayer, playerId, credential } = useSync();
   const fixtures = useLiveQuery(() => db.fixtures.toArray(), []);
   const allBets = useLiveQuery(() => db.bets.toArray(), []);
+  const allHiddenBets = useLiveQuery(() => db.hiddenBets.toArray(), []);
   const allOdds = useLiveQuery(() => db.odds.toArray(), []);
   const allMatchOdds = useLiveQuery(() => db.matchOdds.toArray(), []);
   const allScores = useLiveQuery(() => db.scores.toArray(), []);
@@ -122,21 +128,57 @@ export function Fixtures() {
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'locked'>('all');
   const [group, setGroup] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [hideOtherBetsPreference, setHideOtherBetsPreference] = useState<{
+    key: string | null;
+    value: boolean;
+  }>({ key: null, value: false });
   const fixtureRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const now = useCurrentTime();
   const sortedPlayers = [...(players ?? [])].sort((a, b) => a.name.localeCompare(b.name, 'pl-PL'));
   const leaderIds = leaderIdsFromRows(leaderboard?.board);
+  const hidePreferenceKey = isPlayer
+    ? hideOtherBetsStorageKey(credential?.leagueId, playerId)
+    : null;
+  const hideOtherBetsLocally = hideOtherBetsPreference.key === hidePreferenceKey
+    ? hideOtherBetsPreference.value
+    : readHideOtherBetsPreference(hidePreferenceKey);
+
+  function updateHideOtherBetsLocally(value: boolean) {
+    setHideOtherBetsPreference({ key: hidePreferenceKey, value });
+    if (!hidePreferenceKey) return;
+    if (value) {
+      localStorage.setItem(hidePreferenceKey, '1');
+    } else {
+      localStorage.removeItem(hidePreferenceKey);
+    }
+  }
 
   // Build per-fixture lookup sets
   const betByPlayerFixture = new Map<string, Bet>();
-  const betCountMap = new Map<string, number>();
+  const hiddenBetByPlayerFixture = new Map<string, { playerId: string; fixtureId: string }>();
+  const betPlayerIdsByFixture = new Map<string, Set<string>>();
+  function registerBetPresence(fixtureId: string, registeredPlayerId: string) {
+    const playerIds = betPlayerIdsByFixture.get(fixtureId) ?? new Set<string>();
+    playerIds.add(registeredPlayerId);
+    betPlayerIdsByFixture.set(fixtureId, playerIds);
+  }
   for (const b of (allBets ?? [])) {
     betByPlayerFixture.set(`${b.playerId}:${b.fixtureId}`, b);
-    betCountMap.set(b.fixtureId, (betCountMap.get(b.fixtureId) ?? 0) + 1);
+    registerBetPresence(b.fixtureId, b.playerId);
   }
+  for (const hiddenBet of (allHiddenBets ?? [])) {
+    hiddenBetByPlayerFixture.set(`${hiddenBet.playerId}:${hiddenBet.fixtureId}`, hiddenBet);
+    registerBetPresence(hiddenBet.fixtureId, hiddenBet.playerId);
+  }
+  const betCountMap = new Map(
+    [...betPlayerIdsByFixture.entries()].map(([fixtureId, playerIds]) => [fixtureId, playerIds.size]),
+  );
   const currentPlayerBetFixtureIds = new Set(
     playerId
-      ? (allBets ?? [])
+      ? [
+          ...(allBets ?? []),
+          ...(allHiddenBets ?? []),
+        ]
           .filter((bet) => bet.playerId === playerId)
           .map((bet) => bet.fixtureId)
       : [],
@@ -205,15 +247,21 @@ export function Fixtures() {
     setExpandedId(id);
   }
 
-  function renderQuickBetPreview(fixtureId: string) {
+  function renderQuickBetPreview(fixture: Fixture) {
+    const fixtureId = fixture.id;
     if (isPlayer && playerId) {
       const currentPlayerBet = betByPlayerFixture.get(`${playerId}:${fixtureId}`);
+      const currentPlayerHiddenBet = hiddenBetByPlayerFixture.get(`${playerId}:${fixtureId}`);
       return currentPlayerBet ? (
         <span className="inline-flex flex-col items-end rounded bg-green-50 px-2 py-1 text-xs text-green-700 sm:flex-row sm:items-center sm:gap-1">
           <span className="font-semibold">Twój typ {betScore(currentPlayerBet)}</span>
           <span className="text-[10px] font-medium text-green-600">
             {oddLabel(exactOddByBetKey.get(betOddsKey(currentPlayerBet)))}
           </span>
+        </span>
+      ) : currentPlayerHiddenBet ? (
+        <span className="inline-flex items-center rounded bg-green-50 px-2 py-1 text-xs font-semibold text-green-700">
+          Twój typ zapisany
         </span>
       ) : (
         <button
@@ -236,7 +284,19 @@ export function Fixtures() {
 
     return sortedPlayers.map((player) => {
       const bet = betByPlayerFixture.get(`${player.id}:${fixtureId}`);
+      const hiddenBet = hiddenBetByPlayerFixture.get(`${player.id}:${fixtureId}`);
       if (!bet) {
+        if (hiddenBet) {
+          return (
+            <span
+              key={player.id}
+              className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-1 text-xs text-green-700"
+            >
+              <span className="max-w-28 truncate">{formatPlayerName(player, leaderIds)}</span>
+              <span className="font-semibold text-gray-400">ukryty</span>
+            </span>
+          );
+        }
         return (
           <button
             key={player.id}
@@ -245,9 +305,17 @@ export function Fixtures() {
             className="inline-flex items-center rounded bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
           >
             <span className="max-w-28 truncate">{formatPlayerName(player, leaderIds)}</span>
-          </button>
-        );
+        </button>
+      );
       }
+
+      const hideBetScore = shouldHideKnownBetScore({
+        fixture,
+        betPlayerId: bet.playerId,
+        currentPlayerId: playerId,
+        hideOtherBetsLocally,
+        now,
+      });
 
       return (
         <span
@@ -255,10 +323,16 @@ export function Fixtures() {
           className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-1 text-xs text-green-700"
         >
           <span className="max-w-28 truncate">{formatPlayerName(player, leaderIds)}</span>
-          <span className="font-mono font-semibold">{betScore(bet)}</span>
-          <span className="text-[10px] font-medium text-green-600">
-            {oddLabel(exactOddByBetKey.get(betOddsKey(bet)))}
-          </span>
+          {hideBetScore ? (
+            <span className="font-semibold text-gray-400">ukryty</span>
+          ) : (
+            <>
+              <span className="font-mono font-semibold">{betScore(bet)}</span>
+              <span className="text-[10px] font-medium text-green-600">
+                {oddLabel(exactOddByBetKey.get(betOddsKey(bet)))}
+              </span>
+            </>
+          )}
         </span>
       );
     });
@@ -291,7 +365,20 @@ export function Fixtures() {
               Szybki podgląd najbliższych typów i kursów przed zamknięciem obstawiania.
             </p>
           </div>
-          <span className="shrink-0 text-xs text-gray-400">Najbliższe 24h</span>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <span className="text-xs text-gray-400">Najbliższe 24h</span>
+            {isPlayer && (
+              <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={hideOtherBetsLocally}
+                  onChange={(event) => updateHideOtherBetsLocally(event.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-green-700 focus:ring-green-600"
+                />
+                Ukryj typy innych
+              </label>
+            )}
+          </div>
         </div>
 
         {next24Fixtures.length === 0 ? (
@@ -320,7 +407,7 @@ export function Fixtures() {
                   </div>
                 </button>
                 <div className="flex min-w-0 max-w-[48vw] flex-wrap justify-end gap-1 sm:max-w-none">
-                  {renderQuickBetPreview(fixture.id)}
+                  {renderQuickBetPreview(fixture)}
                 </div>
               </div>
             ))}
@@ -375,8 +462,18 @@ export function Fixtures() {
                 <div className="grid gap-1 sm:grid-cols-2">
                   {sortedPlayers.map((player) => {
                     const bet = betByPlayerFixture.get(`${player.id}:${nextFixture.id}`);
+                    const hiddenBet = hiddenBetByPlayerFixture.get(`${player.id}:${nextFixture.id}`);
                     const isCurrentPlayer = player.id === playerId;
                     const betOdd = bet ? exactOddByBetKey.get(betOddsKey(bet)) : undefined;
+                    const hideBetScore = bet
+                      ? shouldHideKnownBetScore({
+                          fixture: nextFixture,
+                          betPlayerId: bet.playerId,
+                          currentPlayerId: playerId,
+                          hideOtherBetsLocally,
+                          now,
+                        })
+                      : false;
                     return (
                       <div
                         key={player.id}
@@ -391,10 +488,10 @@ export function Fixtures() {
                           )}
                         </span>
                         <span className="shrink-0 text-right">
-                          <span className={`block font-mono font-semibold leading-tight ${bet ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {bet ? betScore(bet) : '-'}
+                          <span className={`block font-mono font-semibold leading-tight ${bet || hiddenBet ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {hiddenBet || hideBetScore ? 'ukryty' : bet ? betScore(bet) : '-'}
                           </span>
-                          {bet && (
+                          {bet && !hideBetScore && !hiddenBet && (
                             <span className="block text-[10px] font-medium leading-tight text-gray-400">
                               {oddLabel(betOdd)}
                             </span>
@@ -570,7 +667,11 @@ export function Fixtures() {
                   </button>
                   {isExpanded && (
                     <div className="border-t border-gray-100 bg-gray-50 px-4 pb-4">
-                      <FixturePanel id={f.id} leaderIds={leaderIds} />
+                      <FixturePanel
+                        id={f.id}
+                        leaderIds={leaderIds}
+                        hideOtherBetsLocally={hideOtherBetsLocally}
+                      />
                     </div>
                   )}
                 </div>

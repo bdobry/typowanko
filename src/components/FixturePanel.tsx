@@ -9,6 +9,12 @@ import { useSync } from '../sync/syncContextValue';
 import { displayTeamName, toStoredTeamName } from '../utils/displayNames';
 import { hasFixtureStarted } from '../utils/fixtureTime';
 import { formatPlayerName } from '../utils/playerNames';
+import {
+  areFixtureBetsPublic,
+  hideOtherBetsStorageKey,
+  readHideOtherBetsPreference,
+  shouldHideKnownBetScore,
+} from '../utils/betVisibility';
 
 const SCORES = Array.from({ length: 6 }, (_, i) => i); // 0..5
 const EMPTY_LEADER_IDS = new Set<string>();
@@ -118,14 +124,28 @@ function PlayerBetForm({
 export function FixturePanel({
   id,
   leaderIds = EMPTY_LEADER_IDS,
+  hideOtherBetsLocally,
 }: {
   id: string;
   leaderIds?: ReadonlySet<string>;
+  hideOtherBetsLocally?: boolean;
 }) {
-  const { isViewer, isPlayer, playerId, markDirty } = useSync();
+  const {
+    role,
+    isViewer,
+    isPlayer,
+    playerId,
+    credential,
+    syncing,
+    markDirty,
+    submitHostBet,
+    deleteHostBet,
+    setFixtureBetVisibility,
+  } = useSync();
   const fixture = useLiveQuery(() => db.fixtures.get(id), [id]);
   const players = useLiveQuery(() => db.players.orderBy('name').toArray(), []);
   const bets = useLiveQuery(() => db.bets.where('fixtureId').equals(id).toArray(), [id]);
+  const hiddenBets = useLiveQuery(() => db.hiddenBets.where('fixtureId').equals(id).toArray(), [id]);
   const odds = useLiveQuery(() => db.odds.where('fixtureId').equals(id).toArray(), [id]);
   const scores = useLiveQuery(() => db.scores.where('fixtureId').equals(id).toArray(), [id]);
   const matchOdd = useLiveQuery(() => db.matchOdds.where('fixtureId').equals(id).first(), [id]);
@@ -136,6 +156,8 @@ export function FixturePanel({
   const [betH, setBetH] = useState(0);
   const [betA, setBetA] = useState(0);
   const [betPlayerId, setBetPlayerId] = useState('');
+  const [betFormError, setBetFormError] = useState<string | null>(null);
+  const [visibilityError, setVisibilityError] = useState<string | null>(null);
 
   const [showOdds, setShowOdds] = useState(false);
   const [oddsInputs, setOddsInputs] = useState<Record<string, string>>({});
@@ -152,20 +174,38 @@ export function FixturePanel({
   const [fetchResultError, setFetchResultError] = useState<string | null>(null);
   const now = useCurrentTime();
 
+  const hidePreferenceKey = isPlayer
+    ? hideOtherBetsStorageKey(credential?.leagueId, playerId)
+    : null;
+
   const currentPlayerBet = playerId
     ? (bets ?? []).find((bet) => bet.playerId === playerId)
     : undefined;
 
   if (!fixture) return <div className="text-gray-400 text-center py-8">Ładowanie…</div>;
 
+  const effectiveHideOtherBets = hideOtherBetsLocally ?? readHideOtherBetsPreference(hidePreferenceKey);
+  const fixtureBetsPublic = areFixtureBetsPublic(fixture, now);
   const oddsMap = new Map<string, number>(
     (odds ?? []).map((o) => [`${o.homeScore}:${o.awayScore}`, o.odd])
   );
   const betsMap = new Map((bets ?? []).map((b) => [b.playerId, b]));
+  const hiddenBetsMap = new Map((hiddenBets ?? []).map((hiddenBet) => [hiddenBet.playerId, hiddenBet]));
   const scoresMap = new Map((scores ?? []).map((s) => [s.playerId, s]));
   const playerNameById = new Map((players ?? []).map((p) => [p.id, formatPlayerName(p, leaderIds)]));
   const betScoreMap = new Map<string, { names: string[]; hasCurrentPlayer: boolean }>();
   for (const bet of bets ?? []) {
+    if (
+      shouldHideKnownBetScore({
+        fixture,
+        betPlayerId: bet.playerId,
+        currentPlayerId: playerId,
+        hideOtherBetsLocally: effectiveHideOtherBets,
+        now,
+      })
+    ) {
+      continue;
+    }
     const key = `${bet.homeScore}:${bet.awayScore}`;
     const entry = betScoreMap.get(key) ?? { names: [], hasCurrentPlayer: false };
     const name = playerNameById.get(bet.playerId) ?? 'Gracz';
@@ -178,31 +218,44 @@ export function FixturePanel({
     e.preventDefault();
     if (isViewer) return;
     if (!betPlayerId) return;
-    if (hasFixtureStarted(fixture!)) return;
-    const existing = await db.bets
-      .where('[playerId+fixtureId]')
-      .equals([betPlayerId, fixture!.id])
-      .first();
-    const updatedAt = Date.now();
-    if (existing) {
-      await db.bets.update(existing.id!, {
-        homeScore: betH,
-        awayScore: betA,
-        updatedAt,
-        updatedBy: 'host',
-      });
-    } else {
-      await db.bets.add({
-        playerId: betPlayerId,
-        fixtureId: fixture!.id,
-        homeScore: betH,
-        awayScore: betA,
-        updatedAt,
-        updatedBy: 'host',
-      });
+    if (hasFixtureStarted(fixture!)) {
+      setBetFormError('Mecz już się rozpoczął. Zakładów nie można już zmieniać.');
+      return;
     }
-    markDirty();
-    setBetPlayerId('');
+    setBetFormError(null);
+    try {
+      if (role === 'host') {
+        await submitHostBet(fixture!.id, betPlayerId, betH, betA);
+      } else {
+        const existing = await db.bets
+          .where('[playerId+fixtureId]')
+          .equals([betPlayerId, fixture!.id])
+          .first();
+        const updatedAt = Date.now();
+        if (existing) {
+          await db.bets.update(existing.id!, {
+            homeScore: betH,
+            awayScore: betA,
+            updatedAt,
+            updatedBy: 'host',
+          });
+        } else {
+          await db.bets.add({
+            playerId: betPlayerId,
+            fixtureId: fixture!.id,
+            homeScore: betH,
+            awayScore: betA,
+            updatedAt,
+            updatedBy: 'host',
+          });
+        }
+        await db.hiddenBets.where('[playerId+fixtureId]').equals([betPlayerId, fixture!.id]).delete();
+        markDirty();
+      }
+      setBetPlayerId('');
+    } catch (err) {
+      setBetFormError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function lockFixture() {
@@ -223,6 +276,21 @@ export function FixturePanel({
     await db.fixtures.update(fixture!.id, { status: 'upcoming', homeScore: undefined, awayScore: undefined });
     await db.scores.where('fixtureId').equals(fixture!.id).delete();
     markDirty();
+  }
+
+  async function updateBetVisibility(hideBetsUntilKickoff: boolean) {
+    if (isViewer) return;
+    setVisibilityError(null);
+    try {
+      if (role === 'host') {
+        await setFixtureBetVisibility(fixture!.id, hideBetsUntilKickoff);
+      } else {
+        await db.fixtures.update(fixture!.id, { hideBetsUntilKickoff });
+        markDirty();
+      }
+    } catch (err) {
+      setVisibilityError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function saveOdds() {
@@ -413,6 +481,7 @@ export function FixturePanel({
   const isLocked = fixture.status === 'locked';
   const hasStarted = hasFixtureStarted(fixture, now);
   const betsClosed = isLocked || hasStarted;
+  const canHostManageBetVisibility = (role === 'host' || role === 'local-host') && !fixtureBetsPublic;
   const resultOutcome =
     isLocked && fixture.homeScore != null && fixture.awayScore != null
       ? fixture.homeScore > fixture.awayScore
@@ -547,7 +616,29 @@ export function FixturePanel({
 
       {/* Bets */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h2 className="text-sm font-semibold text-gray-500 mb-3">Zakłady graczy</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-gray-500">Zakłady graczy</h2>
+          {canHostManageBetVisibility && (
+            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={fixture.hideBetsUntilKickoff === true}
+                disabled={syncing}
+                onChange={(event) => {
+                  void updateBetVisibility(event.target.checked);
+                }}
+                className="h-4 w-4 rounded border-gray-300 text-green-700 focus:ring-green-600"
+              />
+              Ukryj wyniki typów do startu
+            </label>
+          )}
+        </div>
+
+        {visibilityError && (
+          <p className="mb-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            {visibilityError}
+          </p>
+        )}
 
         {isPlayer && !betsClosed && playerId && (
           <PlayerBetForm
@@ -584,11 +675,18 @@ export function FixturePanel({
             <span className="text-sm text-gray-500">{displayTeamName(fixture.awayTeam)}</span>
             <button
               type="submit"
+              disabled={syncing}
               className="bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm transition-colors"
             >
-              Zapisz zakład
+              {syncing ? 'Zapisywanie…' : 'Zapisz zakład'}
             </button>
           </form>
+        )}
+
+        {betFormError && (
+          <p className="mb-4 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            {betFormError}
+          </p>
         )}
 
         {hasStarted && !isLocked && !isViewer && (
@@ -605,10 +703,22 @@ export function FixturePanel({
           <div className="space-y-1">
             {players?.map((p) => {
               const bet = betsMap.get(p.id);
+              const hiddenBet = hiddenBetsMap.get(p.id);
               const score = scoresMap.get(p.id);
               const betOdd = bet ? oddsMap.get(`${bet.homeScore}:${bet.awayScore}`) : undefined;
-              const displayedOdd = score ? undefined : betOdd;
+              const knownBetScoreHidden = bet
+                ? shouldHideKnownBetScore({
+                    fixture,
+                    betPlayerId: bet.playerId,
+                    currentPlayerId: playerId,
+                    hideOtherBetsLocally: effectiveHideOtherBets,
+                    now,
+                  })
+                : false;
+              const displayedOdd = score || knownBetScoreHidden ? undefined : betOdd;
               const scoreType = score?.pointType === 'outcome' ? 'outcome' : score ? 'exact' : null;
+              const hasAnyBet = bet != null || hiddenBet != null;
+              const resultHidden = hiddenBet != null || knownBetScoreHidden;
               return (
                 <div
                   key={p.id}
@@ -632,9 +742,13 @@ export function FixturePanel({
                   </span>
                   {bet ? (
                     <span className="inline-flex items-center gap-2">
-                      <span className="font-mono text-gray-700">
-                        {bet.homeScore}:{bet.awayScore}
-                      </span>
+                      {resultHidden ? (
+                        <span className="text-xs font-semibold text-gray-400">wynik ukryty</span>
+                      ) : (
+                        <span className="font-mono text-gray-700">
+                          {bet.homeScore}:{bet.awayScore}
+                        </span>
+                      )}
                       {displayedOdd != null && (
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -646,6 +760,8 @@ export function FixturePanel({
                         </span>
                       )}
                     </span>
+                  ) : hiddenBet ? (
+                    <span className="text-xs font-semibold text-gray-400">wynik ukryty</span>
                   ) : (
                     <span className="text-gray-400 italic text-xs">brak zakładu</span>
                   )}
@@ -668,11 +784,21 @@ export function FixturePanel({
                   {isLocked && bet && !score && (
                     <span className="text-gray-400 text-xs">chybił</span>
                   )}
-                  {!betsClosed && !isViewer && bet && (
+                  {!betsClosed && !isViewer && hasAnyBet && (
                     <button
                       onClick={async () => {
-                        await db.bets.where('[playerId+fixtureId]').equals([p.id, fixture.id]).delete();
-                        markDirty();
+                        try {
+                          setBetFormError(null);
+                          if (role === 'host') {
+                            await deleteHostBet(fixture.id, p.id);
+                          } else {
+                            await db.bets.where('[playerId+fixtureId]').equals([p.id, fixture.id]).delete();
+                            await db.hiddenBets.where('[playerId+fixtureId]').equals([p.id, fixture.id]).delete();
+                            markDirty();
+                          }
+                        } catch (err) {
+                          setBetFormError(err instanceof Error ? err.message : String(err));
+                        }
                       }}
                       className="text-gray-400 hover:text-red-500 text-xs transition-colors"
                       title="Usuń zakład"

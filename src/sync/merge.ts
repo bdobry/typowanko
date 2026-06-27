@@ -51,6 +51,7 @@ function comparableFixture(fixture: Fixture | undefined) {
     homeScore: fixture.homeScore ?? null,
     awayScore: fixture.awayScore ?? null,
     num: fixture.num ?? null,
+    hideBetsUntilKickoff: fixture.hideBetsUntilKickoff ?? false,
   };
 }
 

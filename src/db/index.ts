@@ -22,6 +22,7 @@ export interface Fixture {
   homeScore?: number;
   awayScore?: number;
   num?: number; // match number for knockout
+  hideBetsUntilKickoff?: boolean;
 }
 
 export interface Odd {
@@ -45,6 +46,14 @@ export interface Bet {
   fixtureId: string;
   homeScore: number;
   awayScore: number;
+  updatedAt?: number;
+  updatedBy?: 'host' | 'player';
+}
+
+export interface HiddenBet {
+  id?: number;
+  playerId: string;
+  fixtureId: string;
   updatedAt?: number;
   updatedBy?: 'host' | 'player';
 }
@@ -81,6 +90,7 @@ export class TypowankoDb extends Dexie {
   fixtures!: EntityTable<Fixture, 'id'>;
   odds!: EntityTable<Odd, 'id'>;
   bets!: EntityTable<Bet, 'id'>;
+  hiddenBets!: EntityTable<HiddenBet, 'id'>;
   scores!: EntityTable<ScoreEntry & { id?: number }, 'id'>;
   matchOdds!: EntityTable<MatchOdd, 'id'>;
 
@@ -124,6 +134,9 @@ export class TypowankoDb extends Dexie {
           await fixtures.update('H5', { date: '2026-06-27' });
         }
       });
+    this.version(5).stores({
+      hiddenBets: '++id, [playerId+fixtureId], fixtureId, playerId',
+    });
   }
 }
 

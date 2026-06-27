@@ -2,6 +2,7 @@ import {
   db,
   type Bet,
   type Fixture,
+  type HiddenBet,
   type MatchOdd,
   type Odd,
   type Player,
@@ -70,7 +71,11 @@ export async function exportSnapshot(sourceDb: TypowankoDb = db): Promise<Typowa
   };
 }
 
-export async function importSnapshot(snapshot: TypowankoSnapshot, targetDb: TypowankoDb = db) {
+export async function importSnapshot(
+  snapshot: TypowankoSnapshot,
+  targetDb: TypowankoDb = db,
+  hiddenBets: HiddenBet[] = [],
+) {
   await targetDb.transaction(
     'rw',
     [
@@ -78,6 +83,7 @@ export async function importSnapshot(snapshot: TypowankoSnapshot, targetDb: Typo
       targetDb.fixtures,
       targetDb.odds,
       targetDb.bets,
+      targetDb.hiddenBets,
       targetDb.scores,
       targetDb.matchOdds,
     ],
@@ -87,6 +93,7 @@ export async function importSnapshot(snapshot: TypowankoSnapshot, targetDb: Typo
         targetDb.fixtures.clear(),
         targetDb.odds.clear(),
         targetDb.bets.clear(),
+        targetDb.hiddenBets.clear(),
         targetDb.scores.clear(),
         targetDb.matchOdds.clear(),
       ]);
@@ -96,6 +103,7 @@ export async function importSnapshot(snapshot: TypowankoSnapshot, targetDb: Typo
         snapshot.fixtures.length ? targetDb.fixtures.bulkAdd(snapshot.fixtures) : Promise.resolve(),
         snapshot.odds.length ? targetDb.odds.bulkAdd(snapshot.odds) : Promise.resolve(),
         snapshot.bets.length ? targetDb.bets.bulkAdd(snapshot.bets) : Promise.resolve(),
+        hiddenBets.length ? targetDb.hiddenBets.bulkAdd(hiddenBets) : Promise.resolve(),
         snapshot.scores.length ? targetDb.scores.bulkAdd(snapshot.scores) : Promise.resolve(),
         snapshot.matchOdds.length ? targetDb.matchOdds.bulkAdd(snapshot.matchOdds) : Promise.resolve(),
       ]);

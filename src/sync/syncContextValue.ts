@@ -37,6 +37,9 @@ export interface SyncContextValue {
   syncNow: () => Promise<void>;
   markDirty: () => void;
   submitPlayerBet: (fixtureId: string, homeScore: number, awayScore: number) => Promise<void>;
+  submitHostBet: (fixtureId: string, playerId: string, homeScore: number, awayScore: number) => Promise<void>;
+  deleteHostBet: (fixtureId: string, playerId: string) => Promise<void>;
+  setFixtureBetVisibility: (fixtureId: string, hideBetsUntilKickoff: boolean) => Promise<void>;
   regeneratePlayerCodes: () => Promise<void>;
   downloadBackup: () => Promise<void>;
   clearCloudSession: () => Promise<void>;

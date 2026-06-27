@@ -1,3 +1,8 @@
+import {
+  mergeHiddenFixtureBetsFromCloud,
+  redactSnapshotForAuth,
+} from './betVisibility';
+
 type D1Result<T = Record<string, unknown>> = {
   results?: T[];
   success: boolean;
@@ -33,6 +38,14 @@ type PlayerBetPayload = {
   awayScore?: unknown;
 };
 
+type HostBetPayload = PlayerBetPayload & {
+  playerId?: unknown;
+};
+
+type FixtureBetVisibilityPayload = {
+  hideBetsUntilKickoff?: unknown;
+};
+
 type SnapshotFixtureRecord = {
   id?: unknown;
   round?: unknown;
@@ -46,6 +59,7 @@ type SnapshotFixtureRecord = {
   homeScore?: unknown;
   awayScore?: unknown;
   num?: unknown;
+  hideBetsUntilKickoff?: unknown;
 };
 
 type SnapshotOddRecord = {
@@ -142,7 +156,7 @@ type ResultRefreshFixtureIssue = {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
   'Access-Control-Allow-Headers': 'content-type,x-typowanko-role,x-typowanko-code',
 };
 
@@ -502,6 +516,37 @@ function playerPresenceFromSnapshot(snapshot: SnapshotRecord) {
     .filter((entry): entry is { playerId: string; lastOnlineAt: number } => entry != null);
 }
 
+function recalculateLockedFixtureScores(snapshot: SnapshotRecord) {
+  for (const fixture of snapshot.fixtures) {
+    if (fixture.status === 'locked') {
+      recalculateFixtureScores(snapshot, fixture);
+    }
+  }
+}
+
+function snapshotResponseFields(
+  leagueId: string,
+  revision: number,
+  schemaVersion: number,
+  updatedAt: number,
+  auth: AuthContext,
+  snapshot: SnapshotRecord,
+  now = Date.now(),
+) {
+  const redacted = redactSnapshotForAuth(snapshot, auth, now);
+  return {
+    leagueId,
+    revision,
+    schemaVersion,
+    updatedAt,
+    role: auth.role,
+    playerId: auth.role === 'player' ? auth.playerId : undefined,
+    playerPresence: playerPresenceFromSnapshot(snapshot),
+    snapshot: redacted.snapshot,
+    hiddenBets: redacted.hiddenBets,
+  };
+}
+
 async function createOrReactivateMissingPlayerCodes(
   env: Env,
   leagueId: string,
@@ -747,16 +792,14 @@ async function fetchSnapshot(request: Request, env: Env, leagueId: string) {
     }
   }
 
-  return jsonResponse({
-    leagueId: responseLeague.id,
-    revision: responseLeague.revision,
-    schemaVersion: responseLeague.schema_version,
+  return jsonResponse(snapshotResponseFields(
+    responseLeague.id,
+    responseLeague.revision,
+    responseLeague.schema_version,
     updatedAt,
-    role: auth.role,
-    playerId: auth.role === 'player' ? auth.playerId : undefined,
-    playerPresence: playerPresenceFromSnapshot(responseSnapshot),
-    snapshot: responseSnapshot,
-  });
+    auth,
+    responseSnapshot,
+  ));
 }
 
 async function updateSnapshot(request: Request, env: Env, leagueId: string) {
@@ -783,7 +826,9 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
   if (validateSnapshot(cloudSnapshot)) {
     applyCapeVerdeSaudiArabiaDateCorrection(cloudSnapshot);
     mergePlayerPresence(snapshot, cloudSnapshot);
+    mergeHiddenFixtureBetsFromCloud(snapshot, cloudSnapshot);
   }
+  recalculateLockedFixtureScores(snapshot);
 
   const nextRevision = league.revision + 1;
   const now = Date.now();
@@ -813,11 +858,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
   );
 
   return jsonResponse({
-    leagueId,
-    revision: nextRevision,
-    schemaVersion,
-    updatedAt: now,
-    playerPresence: playerPresenceFromSnapshot(snapshot),
+    ...snapshotResponseFields(leagueId, nextRevision, schemaVersion, now, auth, snapshot, now),
     playerCodes: playerCodes.map((playerCode) => ({
       playerId: playerCode.playerId,
       playerIdCode: buildCombinedId('P', leagueId, playerCode.playerCode),
@@ -947,16 +988,270 @@ async function updatePlayerBetFromBody(
     return errorResponse(409, 'Cloud snapshot changed while saving your bet. Try again.');
   }
 
-  return jsonResponse({
+  return jsonResponse(snapshotResponseFields(
     leagueId,
-    revision: league.revision + 1,
-    schemaVersion: league.schema_version,
-    updatedAt: now,
-    role: 'player',
-    playerId: auth.playerId,
-    playerPresence: playerPresenceFromSnapshot(snapshot),
+    league.revision + 1,
+    league.schema_version,
+    now,
+    auth,
     snapshot,
-  });
+    now,
+  ));
+}
+
+async function updateHostBet(
+  request: Request,
+  env: Env,
+  leagueId: string,
+): Promise<Response> {
+  const body = (await readJson(request)) as HostBetPayload;
+  return updateHostBetFromBody(request, body, env, leagueId);
+}
+
+async function updateHostBetFromBody(
+  request: Request,
+  body: HostBetPayload,
+  env: Env,
+  leagueId: string,
+  attempt = 0,
+): Promise<Response> {
+  const league = await getLeague(env, leagueId);
+  if (!league) return errorResponse(404, 'League not found.');
+
+  const auth = await authenticateCredential(env, league, request);
+  if (auth?.role !== 'host') return errorResponse(401, 'Invalid host ID.');
+
+  if (typeof body.fixtureId !== 'string' || !body.fixtureId) {
+    return errorResponse(400, 'fixtureId is required.');
+  }
+  if (typeof body.playerId !== 'string' || !body.playerId) {
+    return errorResponse(400, 'playerId is required.');
+  }
+  if (!isSupportedScore(body.homeScore) || !isSupportedScore(body.awayScore)) {
+    return errorResponse(400, 'Scores must be integers from 0 to 5.');
+  }
+
+  const snapshot = JSON.parse(league.snapshot_json) as unknown;
+  if (!validateSnapshot(snapshot)) {
+    return errorResponse(500, 'Stored league snapshot is invalid.');
+  }
+  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+
+  const playerExists = snapshot.players.some((player) => player.id === body.playerId);
+  if (!playerExists) {
+    return errorResponse(404, 'Player not found.');
+  }
+
+  const fixture = snapshot.fixtures.find((entry) => entry.id === body.fixtureId);
+  if (!fixture) {
+    return errorResponse(404, 'Fixture not found.');
+  }
+
+  const now = Date.now();
+  if (fixture.status === 'locked' || hasFixtureStarted(fixture, now)) {
+    return errorResponse(409, BET_LOCK_MESSAGE);
+  }
+
+  const existingIndex = snapshot.bets.findIndex(
+    (bet) => bet.playerId === body.playerId && bet.fixtureId === body.fixtureId,
+  );
+  const existing = existingIndex >= 0 ? snapshot.bets[existingIndex] : null;
+  const nextBet = {
+    ...(existing ?? {}),
+    playerId: body.playerId,
+    fixtureId: body.fixtureId,
+    homeScore: body.homeScore,
+    awayScore: body.awayScore,
+    updatedAt: now,
+    updatedBy: 'host' as const,
+  };
+
+  if (existingIndex >= 0) {
+    snapshot.bets[existingIndex] = nextBet;
+  } else {
+    snapshot.bets.push(nextBet);
+  }
+
+  snapshot.schemaVersion = league.schema_version;
+  snapshot.exportedAt = now;
+
+  const changes = await writeSnapshotIfRevisionMatches(
+    env,
+    leagueId,
+    league.revision,
+    snapshot,
+    league.schema_version,
+    now,
+  );
+
+  if (changes === 0 && attempt < 3) {
+    return updateHostBetFromBody(request, body, env, leagueId, attempt + 1);
+  }
+
+  if (changes === 0) {
+    return errorResponse(409, 'Cloud snapshot changed while saving this bet. Try again.');
+  }
+
+  return jsonResponse(snapshotResponseFields(
+    leagueId,
+    league.revision + 1,
+    league.schema_version,
+    now,
+    auth,
+    snapshot,
+    now,
+  ));
+}
+
+async function deleteHostBet(
+  request: Request,
+  env: Env,
+  leagueId: string,
+): Promise<Response> {
+  const body = (await readJson(request)) as HostBetPayload;
+  return deleteHostBetFromBody(request, body, env, leagueId);
+}
+
+async function deleteHostBetFromBody(
+  request: Request,
+  body: HostBetPayload,
+  env: Env,
+  leagueId: string,
+  attempt = 0,
+): Promise<Response> {
+  const league = await getLeague(env, leagueId);
+  if (!league) return errorResponse(404, 'League not found.');
+
+  const auth = await authenticateCredential(env, league, request);
+  if (auth?.role !== 'host') return errorResponse(401, 'Invalid host ID.');
+
+  if (typeof body.fixtureId !== 'string' || !body.fixtureId) {
+    return errorResponse(400, 'fixtureId is required.');
+  }
+  if (typeof body.playerId !== 'string' || !body.playerId) {
+    return errorResponse(400, 'playerId is required.');
+  }
+
+  const snapshot = JSON.parse(league.snapshot_json) as unknown;
+  if (!validateSnapshot(snapshot)) {
+    return errorResponse(500, 'Stored league snapshot is invalid.');
+  }
+  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+
+  const fixture = snapshot.fixtures.find((entry) => entry.id === body.fixtureId);
+  if (!fixture) {
+    return errorResponse(404, 'Fixture not found.');
+  }
+
+  const now = Date.now();
+  if (fixture.status === 'locked' || hasFixtureStarted(fixture, now)) {
+    return errorResponse(409, BET_LOCK_MESSAGE);
+  }
+
+  snapshot.bets = snapshot.bets.filter(
+    (bet) => !(bet.playerId === body.playerId && bet.fixtureId === body.fixtureId),
+  );
+  snapshot.schemaVersion = league.schema_version;
+  snapshot.exportedAt = now;
+
+  const changes = await writeSnapshotIfRevisionMatches(
+    env,
+    leagueId,
+    league.revision,
+    snapshot,
+    league.schema_version,
+    now,
+  );
+
+  if (changes === 0 && attempt < 3) {
+    return deleteHostBetFromBody(request, body, env, leagueId, attempt + 1);
+  }
+
+  if (changes === 0) {
+    return errorResponse(409, 'Cloud snapshot changed while deleting this bet. Try again.');
+  }
+
+  return jsonResponse(snapshotResponseFields(
+    leagueId,
+    league.revision + 1,
+    league.schema_version,
+    now,
+    auth,
+    snapshot,
+    now,
+  ));
+}
+
+async function updateFixtureBetVisibility(
+  request: Request,
+  env: Env,
+  leagueId: string,
+  fixtureId: string,
+): Promise<Response> {
+  const body = (await readJson(request)) as FixtureBetVisibilityPayload;
+  return updateFixtureBetVisibilityFromBody(request, body, env, leagueId, fixtureId);
+}
+
+async function updateFixtureBetVisibilityFromBody(
+  request: Request,
+  body: FixtureBetVisibilityPayload,
+  env: Env,
+  leagueId: string,
+  fixtureId: string,
+  attempt = 0,
+): Promise<Response> {
+  const league = await getLeague(env, leagueId);
+  if (!league) return errorResponse(404, 'League not found.');
+
+  const auth = await authenticateCredential(env, league, request);
+  if (auth?.role !== 'host') return errorResponse(401, 'Invalid host ID.');
+
+  if (typeof body.hideBetsUntilKickoff !== 'boolean') {
+    return errorResponse(400, 'hideBetsUntilKickoff must be a boolean.');
+  }
+
+  const snapshot = JSON.parse(league.snapshot_json) as unknown;
+  if (!validateSnapshot(snapshot)) {
+    return errorResponse(500, 'Stored league snapshot is invalid.');
+  }
+  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+
+  const fixture = snapshot.fixtures.find((entry) => entry.id === fixtureId);
+  if (!fixture) {
+    return errorResponse(404, 'Fixture not found.');
+  }
+
+  const now = Date.now();
+  fixture.hideBetsUntilKickoff = body.hideBetsUntilKickoff;
+  snapshot.schemaVersion = league.schema_version;
+  snapshot.exportedAt = now;
+
+  const changes = await writeSnapshotIfRevisionMatches(
+    env,
+    leagueId,
+    league.revision,
+    snapshot,
+    league.schema_version,
+    now,
+  );
+
+  if (changes === 0 && attempt < 3) {
+    return updateFixtureBetVisibilityFromBody(request, body, env, leagueId, fixtureId, attempt + 1);
+  }
+
+  if (changes === 0) {
+    return errorResponse(409, 'Cloud snapshot changed while updating bet visibility. Try again.');
+  }
+
+  return jsonResponse(snapshotResponseFields(
+    leagueId,
+    league.revision + 1,
+    league.schema_version,
+    now,
+    auth,
+    snapshot,
+    now,
+  ));
 }
 
 async function refreshCompletedResults(request: Request, env: Env, leagueId: string) {
@@ -976,14 +1271,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
   const lastCheckedAt = timestampValue(snapshot.autoResultsLastCheckedAt);
   if (now - lastCheckedAt < AUTO_RESULT_REFRESH_MIN_INTERVAL_MS) {
     return jsonResponse({
-      leagueId,
-      revision: league.revision,
-      schemaVersion: league.schema_version,
-      updatedAt: league.updated_at,
-      role: auth.role,
-      playerId: auth.role === 'player' ? auth.playerId : undefined,
-      playerPresence: playerPresenceFromSnapshot(snapshot),
-      snapshot,
+      ...snapshotResponseFields(leagueId, league.revision, league.schema_version, league.updated_at, auth, snapshot, now),
       lockedFixtureIds: [],
       throttled: true,
       failedFixtures: [],
@@ -993,14 +1281,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
 
   if (!env.API_FOOTBALL_KEY) {
     return jsonResponse({
-      leagueId,
-      revision: league.revision,
-      schemaVersion: league.schema_version,
-      updatedAt: league.updated_at,
-      role: auth.role,
-      playerId: auth.role === 'player' ? auth.playerId : undefined,
-      playerPresence: playerPresenceFromSnapshot(snapshot),
-      snapshot,
+      ...snapshotResponseFields(leagueId, league.revision, league.schema_version, league.updated_at, auth, snapshot, now),
       lockedFixtureIds: [],
       skippedReason: 'missing_api_key',
       failedFixtures: [],
@@ -1020,14 +1301,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
 
   if (candidates.length === 0) {
     return jsonResponse({
-      leagueId,
-      revision: league.revision,
-      schemaVersion: league.schema_version,
-      updatedAt: league.updated_at,
-      role: auth.role,
-      playerId: auth.role === 'player' ? auth.playerId : undefined,
-      playerPresence: playerPresenceFromSnapshot(snapshot),
-      snapshot,
+      ...snapshotResponseFields(leagueId, league.revision, league.schema_version, league.updated_at, auth, snapshot, now),
       lockedFixtureIds: [],
       failedFixtures: [],
       unresolvedFixtures: [],
@@ -1057,14 +1331,15 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
     applyCapeVerdeSaudiArabiaDateCorrection(latestSnapshot);
 
     return jsonResponse({
-      leagueId,
-      revision: latestLeague.revision,
-      schemaVersion: latestLeague.schema_version,
-      updatedAt: latestLeague.updated_at,
-      role: auth.role,
-      playerId: auth.role === 'player' ? auth.playerId : undefined,
-      playerPresence: playerPresenceFromSnapshot(latestSnapshot),
-      snapshot: latestSnapshot,
+      ...snapshotResponseFields(
+        leagueId,
+        latestLeague.revision,
+        latestLeague.schema_version,
+        latestLeague.updated_at,
+        auth,
+        latestSnapshot,
+        now,
+      ),
       lockedFixtureIds: [],
       throttled: true,
       failedFixtures: [],
@@ -1138,14 +1413,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
         : undefined;
 
     return jsonResponse({
-      leagueId,
-      revision: league.revision + 1,
-      schemaVersion: league.schema_version,
-      updatedAt: now,
-      role: auth.role,
-      playerId: auth.role === 'player' ? auth.playerId : undefined,
-      playerPresence: playerPresenceFromSnapshot(snapshot),
-      snapshot,
+      ...snapshotResponseFields(leagueId, league.revision + 1, league.schema_version, now, auth, snapshot, now),
       lockedFixtureIds,
       refreshedAt: now,
       skippedReason,
@@ -1174,14 +1442,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
   }
 
   return jsonResponse({
-    leagueId,
-    revision: league.revision + 2,
-    schemaVersion: league.schema_version,
-    updatedAt: finishedAt,
-    role: auth.role,
-    playerId: auth.role === 'player' ? auth.playerId : undefined,
-    playerPresence: playerPresenceFromSnapshot(snapshot),
-    snapshot,
+    ...snapshotResponseFields(leagueId, league.revision + 2, league.schema_version, finishedAt, auth, snapshot, finishedAt),
     lockedFixtureIds,
     refreshedAt: finishedAt,
     failedFixtures,
@@ -1250,6 +1511,19 @@ async function route(request: Request, env: Env) {
   const betsMatch = path.match(/^\/api\/leagues\/([A-Z0-9]+)\/bets$/);
   if (betsMatch && request.method === 'PUT') {
     return updatePlayerBet(request, env, betsMatch[1]);
+  }
+
+  const hostBetsMatch = path.match(/^\/api\/leagues\/([A-Z0-9]+)\/host-bets$/);
+  if (hostBetsMatch && request.method === 'PUT') {
+    return updateHostBet(request, env, hostBetsMatch[1]);
+  }
+  if (hostBetsMatch && request.method === 'DELETE') {
+    return deleteHostBet(request, env, hostBetsMatch[1]);
+  }
+
+  const betVisibilityMatch = path.match(/^\/api\/leagues\/([A-Z0-9]+)\/fixtures\/([^/]+)\/bet-visibility$/);
+  if (betVisibilityMatch && request.method === 'PUT') {
+    return updateFixtureBetVisibility(request, env, betVisibilityMatch[1], decodeURIComponent(betVisibilityMatch[2]));
   }
 
   const resultsRefreshMatch = path.match(/^\/api\/leagues\/([A-Z0-9]+)\/results\/refresh$/);

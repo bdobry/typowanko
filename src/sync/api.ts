@@ -1,4 +1,5 @@
 import { SNAPSHOT_SCHEMA_VERSION, type TypowankoSnapshot } from './snapshot';
+import type { HiddenBet } from '../db';
 
 export type CloudRole = 'host' | 'viewer' | 'player';
 
@@ -37,6 +38,7 @@ export interface SnapshotResponse {
   role?: CloudRole;
   playerId?: string;
   playerPresence?: PlayerPresence[];
+  hiddenBets?: HiddenBet[];
   snapshot: TypowankoSnapshot;
 }
 
@@ -65,6 +67,8 @@ export interface PushSnapshotResponse {
   updatedAt: number;
   playerCodes?: PlayerCode[];
   playerPresence?: PlayerPresence[];
+  hiddenBets?: HiddenBet[];
+  snapshot?: TypowankoSnapshot;
 }
 
 export interface PlayerCodesResponse {
@@ -187,6 +191,64 @@ export async function submitPlayerBet(
       homeScore,
       awayScore,
     }),
+  });
+  return readResponse<SnapshotResponse>(response);
+}
+
+export async function submitHostBet(
+  credential: CloudCredential,
+  fixtureId: string,
+  playerId: string,
+  homeScore: number,
+  awayScore: number,
+) {
+  const response = await fetch(endpoint(`/api/leagues/${credential.leagueId}/host-bets`), {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+      ...credentialHeaders(credential),
+    },
+    body: JSON.stringify({
+      fixtureId,
+      playerId,
+      homeScore,
+      awayScore,
+    }),
+  });
+  return readResponse<SnapshotResponse>(response);
+}
+
+export async function deleteHostBet(
+  credential: CloudCredential,
+  fixtureId: string,
+  playerId: string,
+) {
+  const response = await fetch(endpoint(`/api/leagues/${credential.leagueId}/host-bets`), {
+    method: 'DELETE',
+    headers: {
+      'content-type': 'application/json',
+      ...credentialHeaders(credential),
+    },
+    body: JSON.stringify({
+      fixtureId,
+      playerId,
+    }),
+  });
+  return readResponse<SnapshotResponse>(response);
+}
+
+export async function setFixtureBetVisibility(
+  credential: CloudCredential,
+  fixtureId: string,
+  hideBetsUntilKickoff: boolean,
+) {
+  const response = await fetch(endpoint(`/api/leagues/${credential.leagueId}/fixtures/${fixtureId}/bet-visibility`), {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+      ...credentialHeaders(credential),
+    },
+    body: JSON.stringify({ hideBetsUntilKickoff }),
   });
   return readResponse<SnapshotResponse>(response);
 }

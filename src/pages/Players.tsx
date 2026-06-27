@@ -36,9 +36,10 @@ export function Players() {
 
   async function removePlayer(id: string) {
     if (!confirm('Usunąć gracza? Jego zakłady i wyniki zostaną również usunięte.')) return;
-    await db.transaction('rw', db.players, db.bets, db.scores, async () => {
+    await db.transaction('rw', db.players, db.bets, db.hiddenBets, db.scores, async () => {
       await db.players.delete(id);
       await db.bets.where('playerId').equals(id).delete();
+      await db.hiddenBets.where('playerId').equals(id).delete();
       await db.scores.where('playerId').equals(id).delete();
     });
     markDirty();
