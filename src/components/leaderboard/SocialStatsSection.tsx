@@ -9,7 +9,7 @@ import { fixtureTeamsLabel, formatPoints } from './formatters';
 const CONTRARIAN_ROW_LIMIT = 10;
 const SIMILAR_PAIR_LIMIT = 8;
 const HIT_LIMIT = 4;
-const MIN_SIMILARITY = 45;
+const MIN_SIMILARITY = 40;
 
 interface SocialStatsSectionProps {
   stats: LeaderboardData['socialStats'];
@@ -264,7 +264,7 @@ export function SocialStatsSection({
           </div>
           <p className="mb-3 max-w-3xl text-xs leading-relaxed text-gray-400">
             Pary od {MIN_SIMILARITY}% zgodności. Liczby w nawiasach pokazują, ile takich wspólnych typów punktowało.
-            Przy dokł. nawias zlicza też jeśli ostatecznie weszło tylko 1X2.
+            Przy dokł. nawias liczy tylko trafione dokładne wyniki.
           </p>
           {similarPairs.length > 0 ? (
             <div className="divide-y divide-gray-100">

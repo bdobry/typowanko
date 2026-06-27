@@ -244,6 +244,32 @@ function findSimilarPair(playerId: string, leaderboard: LeaderboardData): Leader
   );
 }
 
+function findLeastSimilarPair(playerId: string, leaderboard: LeaderboardData): LeaderboardSimilarPair | undefined {
+  return leaderboard.socialStats.similarPairs
+    .filter((pair) => pair.players.some((pairPlayer) => pairPlayer.id === playerId))
+    .sort((a, b) => {
+      if (a.similarity !== b.similarity) return a.similarity - b.similarity;
+      if (b.sharedBetCount !== a.sharedBetCount) return b.sharedBetCount - a.sharedBetCount;
+      if (a.exactMatchCount !== b.exactMatchCount) return a.exactMatchCount - b.exactMatchCount;
+      return `${a.players[0].name} ${a.players[1].name}`.localeCompare(
+        `${b.players[0].name} ${b.players[1].name}`,
+        'pl-PL',
+      );
+    })[0];
+}
+
+function exactMatchLabel(count: number) {
+  if (count === 1) return '1 dokładny';
+  if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
+    return `${count} dokładne`;
+  }
+  return `${count} dokładnych`;
+}
+
+function formatSimilarityDetail(pair: LeaderboardSimilarPair) {
+  return `${pair.similarity.toFixed(0)}% zgodności, ${matchCountLabel(pair.sharedBetCount)} - ${pair.outcomeOnlyMatchCount} 1X2, ${exactMatchLabel(pair.exactMatchCount)}`;
+}
+
 function buildTimelineRankStats(playerId: string, leaderboard: LeaderboardData) {
   const positions = leaderboard.timeline
     .filter((point) => point.fixture.status === 'locked')
@@ -728,6 +754,8 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
   const contrarianRow = leaderboard.socialStats.contrarianRows.find((row) => row.player.id === player.id);
   const similarPair = findSimilarPair(player.id, leaderboard);
   const similarPartner = similarPair?.players.find((pairPlayer) => pairPlayer.id !== player.id);
+  const leastSimilarPair = findLeastSimilarPair(player.id, leaderboard);
+  const leastSimilarPartner = leastSimilarPair?.players.find((pairPlayer) => pairPlayer.id !== player.id);
   const betsByPlayerId = new Map<string, Bet[]>();
   for (const bet of allBets) {
     const playerBets = betsByPlayerId.get(bet.playerId) ?? [];
@@ -932,8 +960,17 @@ export function PlayerHistory({ player, onClose }: { player: Player; onClose: ()
             value={similarPair && similarPartner ? formatPlayerName(similarPartner, leaderIds) : 'brak'}
             detail={
               similarPair
-                ? `${similarPair.similarity.toFixed(0)}% zgodności, ${similarPair.sharedBetCount} wspólnych typów`
-                : 'Za mało wspólnych typów z innymi graczami.'
+                ? formatSimilarityDetail(similarPair)
+                : 'Za mało wspólnych meczów z innymi graczami.'
+            }
+          />
+          <InsightCard
+            label="Najmniejsze podobieństwo"
+            value={leastSimilarPair && leastSimilarPartner ? formatPlayerName(leastSimilarPartner, leaderIds) : 'brak'}
+            detail={
+              leastSimilarPair
+                ? formatSimilarityDetail(leastSimilarPair)
+                : 'Za mało wspólnych meczów z innymi graczami.'
             }
           />
         </div>
