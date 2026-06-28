@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Bet, type Fixture, type Odd } from '../db';
+import { db, type Bet, type Fixture, type FixtureWinner, type Odd } from '../db';
 import { Tooltip } from './Tooltip';
 import { recalcFixture } from '../utils/scoring';
 import { fetchAllOdds, getApiFootballKey } from '../utils/oddsApi';
@@ -9,6 +9,7 @@ import { useSync } from '../sync/syncContextValue';
 import { displayTeamName, toStoredTeamName } from '../utils/displayNames';
 import { hasFixtureStarted } from '../utils/fixtureTime';
 import { formatPlayerName } from '../utils/playerNames';
+import { syncKnockoutFixtures } from '../db/seed';
 import {
   areFixtureBetsPublic,
   hideOtherBetsStorageKey,
@@ -152,6 +153,7 @@ export function FixturePanel({
 
   const [resultH, setResultH] = useState(0);
   const [resultA, setResultA] = useState(0);
+  const [resultWinner, setResultWinner] = useState<FixtureWinner | null>(null);
 
   const [betH, setBetH] = useState(0);
   const [betA, setBetA] = useState(0);
@@ -260,21 +262,40 @@ export function FixturePanel({
 
   async function lockFixture() {
     if (isViewer) return;
+    const needsWinner = fixture!.num != null && resultH === resultA;
+    if (needsWinner && resultWinner == null) {
+      alert('Wybierz drużynę awansującą po dogrywce/karnych.');
+      return;
+    }
     if (!confirm(`Zablokować wynik ${resultH}:${resultA} dla ${displayTeamName(fixture!.homeTeam)} vs ${displayTeamName(fixture!.awayTeam)}?`)) return;
     await db.fixtures.update(fixture!.id, {
       status: 'locked',
       homeScore: resultH,
       awayScore: resultA,
+      winnerTeam: needsWinner ? resultWinner ?? undefined : undefined,
     });
-    await recalcFixture({ ...fixture!, status: 'locked', homeScore: resultH, awayScore: resultA });
+    await recalcFixture({
+      ...fixture!,
+      status: 'locked',
+      homeScore: resultH,
+      awayScore: resultA,
+      winnerTeam: needsWinner ? resultWinner ?? undefined : undefined,
+    });
+    await syncKnockoutFixtures();
     markDirty();
   }
 
   async function unlockFixture() {
     if (isViewer) return;
     if (!confirm('Odblokować mecz? Punkty zostaną usunięte.')) return;
-    await db.fixtures.update(fixture!.id, { status: 'upcoming', homeScore: undefined, awayScore: undefined });
+    await db.fixtures.update(fixture!.id, {
+      status: 'upcoming',
+      homeScore: undefined,
+      awayScore: undefined,
+      winnerTeam: undefined,
+    });
     await db.scores.where('fixtureId').equals(fixture!.id).delete();
+    await syncKnockoutFixtures();
     markDirty();
   }
 
@@ -471,6 +492,7 @@ export function FixturePanel({
       );
       setResultH(result.homeScore);
       setResultA(result.awayScore);
+      setResultWinner(result.winnerTeam ?? null);
     } catch (err) {
       setFetchResultError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -482,6 +504,7 @@ export function FixturePanel({
   const hasStarted = hasFixtureStarted(fixture, now);
   const betsClosed = isLocked || hasStarted;
   const canHostManageBetVisibility = (role === 'host' || role === 'local-host') && !fixtureBetsPublic;
+  const needsKnockoutWinner = fixture.num != null && resultH === resultA;
   const resultOutcome =
     isLocked && fixture.homeScore != null && fixture.awayScore != null
       ? fixture.homeScore > fixture.awayScore
@@ -589,6 +612,25 @@ export function FixturePanel({
               Zatwierdź wynik
             </button>
           </div>
+          {needsKnockoutWinner && (
+            <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Awans po dogrywce/karnych
+              </span>
+              <select
+                value={resultWinner ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setResultWinner(value === 'home' || value === 'away' ? value : null);
+                }}
+                className="bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-900 text-sm focus:outline-none focus:border-green-500"
+              >
+                <option value="">Wybierz drużynę…</option>
+                <option value="home">{displayTeamName(fixture.homeTeam)}</option>
+                <option value="away">{displayTeamName(fixture.awayTeam)}</option>
+              </select>
+            </label>
+          )}
           {fetchResultError && (
             <p className="text-xs text-red-500 mt-2 bg-red-50 border border-red-200 rounded px-3 py-2">
               ⚠️ {fetchResultError}

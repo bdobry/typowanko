@@ -1,5 +1,6 @@
 import { getApiFootballKey, ODDS_API_KEY_STORAGE_KEY } from './oddsApi';
 import { teamsMatch } from './teamMatching';
+import type { FixtureWinner } from '../db';
 
 const API_BASE = 'https://v3.football.api-sports.io';
 const WC_LEAGUE_ID = 1; // FIFA World Cup
@@ -12,7 +13,28 @@ export interface MatchResult {
   homeScore: number;
   awayScore: number;
   status: string;
+  winnerTeam?: FixtureWinner;
 }
+
+type ApiScorePart = {
+  home?: number | null;
+  away?: number | null;
+};
+
+type ApiFixtureEntry = {
+  teams?: {
+    home?: { name?: string; winner?: boolean | null };
+    away?: { name?: string; winner?: boolean | null };
+  };
+  goals?: ApiScorePart;
+  score?: {
+    halftime?: ApiScorePart;
+    fulltime?: ApiScorePart;
+    extratime?: ApiScorePart;
+    penalty?: ApiScorePart;
+  };
+  fixture?: { status?: { short?: string } };
+};
 
 function addUtcDays(date: string, days: number): string {
   const value = new Date(`${date}T00:00:00Z`);
@@ -24,8 +46,39 @@ function fixtureSearchDates(date: string): string[] {
   return [date, addUtcDays(date, 1), addUtcDays(date, -1)];
 }
 
+function hasScore(score: ApiScorePart | undefined): score is { home: number; away: number } {
+  return typeof score?.home === 'number' && typeof score.away === 'number';
+}
+
+function scoreWinner(score: ApiScorePart | undefined): FixtureWinner | undefined {
+  if (!hasScore(score) || score.home === score.away) return undefined;
+  return score.home > score.away ? 'home' : 'away';
+}
+
+function teamsWinner(teams: ApiFixtureEntry['teams']): FixtureWinner | undefined {
+  if (teams?.home?.winner === true && teams.away?.winner === false) return 'home';
+  if (teams?.away?.winner === true && teams.home?.winner === false) return 'away';
+  return undefined;
+}
+
+function matchWinner(entry: ApiFixtureEntry): FixtureWinner | undefined {
+  return (
+    teamsWinner(entry.teams) ??
+    scoreWinner(entry.score?.penalty) ??
+    scoreWinner(entry.score?.extratime) ??
+    scoreWinner(entry.goals) ??
+    scoreWinner(entry.score?.fulltime)
+  );
+}
+
+function reverseWinner(winner: FixtureWinner | undefined): FixtureWinner | undefined {
+  if (winner === 'home') return 'away';
+  if (winner === 'away') return 'home';
+  return undefined;
+}
+
 /**
- * Fetch the final score for a specific match from v3.football.api-sports.io.
+ * Fetch the regular-time score and final winner for a specific match from v3.football.api-sports.io.
  *
  * Docs: https://www.api-football.com/documentation-v3
  * Pro plan: no CORS restrictions.
@@ -63,16 +116,18 @@ export async function fetchMatchResult(
       throw new Error(message);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await res.json();
+    const data = await res.json() as {
+      errors?: Record<string, unknown>;
+      response?: ApiFixtureEntry[];
+      message?: string;
+    };
 
     if (data?.errors && Object.keys(data.errors).length > 0) {
       const firstError = Object.values(data.errors)[0];
       throw new Error(String(firstError));
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fixtures: any[] = data.response ?? [];
+    const fixtures = data.response ?? [];
 
     const entry = fixtures.find((f) => {
       const apiHomeTeam = f.teams?.home?.name ?? '';
@@ -99,17 +154,22 @@ export async function fetchMatchResult(
       );
     }
 
-    const homeScore: number = entry.goals?.home;
-    const awayScore: number = entry.goals?.away;
+    const regularTimeScore = hasScore(entry.score?.fulltime) ? entry.score.fulltime : entry.goals;
+    const homeScore = regularTimeScore?.home;
+    const awayScore = regularTimeScore?.away;
 
-    if (homeScore == null || awayScore == null) {
-      throw new Error(`Brak wyniku dla meczu "${homeTeam} vs ${awayTeam}".`);
+    if (typeof homeScore !== 'number' || typeof awayScore !== 'number') {
+      throw new Error(`Brak wyniku po regulaminowym czasie dla meczu "${homeTeam} vs ${awayTeam}".`);
     }
+
+    const apiWinner = matchWinner(entry);
+    const winnerTeam = reversed ? reverseWinner(apiWinner) : apiWinner;
 
     return {
       homeScore: reversed ? awayScore : homeScore,
       awayScore: reversed ? homeScore : awayScore,
       status,
+      winnerTeam,
     };
   }
 

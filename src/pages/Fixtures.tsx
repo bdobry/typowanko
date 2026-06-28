@@ -84,10 +84,18 @@ function resultStatusTooltip(fixture: Fixture, hasStarted: boolean) {
       fixture.homeScore != null && fixture.awayScore != null
         ? `${fixture.homeScore}:${fixture.awayScore}`
         : '-';
+    const winnerLabel = fixture.winnerTeam === 'home'
+      ? fixture.homeTeam
+      : fixture.winnerTeam === 'away'
+      ? fixture.awayTeam
+      : null;
     return (
       <span className="block">
         <span className="block text-sm font-bold">Wynik zapisany</span>
         <span className="block text-gray-200">{score}</span>
+        {winnerLabel && fixture.homeScore === fixture.awayScore && (
+          <span className="block text-gray-300">Awans: {displayTeamName(winnerLabel)}</span>
+        )}
       </span>
     );
   }

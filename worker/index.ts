@@ -2,6 +2,7 @@ import {
   mergeHiddenFixtureBetsFromCloud,
   redactSnapshotForAuth,
 } from './betVisibility';
+import { buildKnockoutFixtureUpdates } from '../src/utils/knockoutBracket';
 
 type D1Result<T = Record<string, unknown>> = {
   results?: T[];
@@ -58,6 +59,7 @@ type SnapshotFixtureRecord = {
   status?: unknown;
   homeScore?: unknown;
   awayScore?: unknown;
+  winnerTeam?: unknown;
   num?: unknown;
   hideBetsUntilKickoff?: unknown;
 };
@@ -140,7 +142,14 @@ type SnapshotRecord = {
 };
 
 type MatchResultLookup =
-  | { kind: 'finished'; homeScore: number; awayScore: number; status: string; matchedDate: string }
+  | {
+      kind: 'finished';
+      homeScore: number;
+      awayScore: number;
+      winnerTeam?: FixtureWinner;
+      status: string;
+      matchedDate: string;
+    }
   | { kind: 'not_finished'; status: string; matchedDate: string }
   | { kind: 'missing_score'; status: string; matchedDate: string }
   | { kind: 'not_found' };
@@ -168,6 +177,24 @@ const BET_LOCK_MESSAGE = 'Mecz już się rozpoczął. Zakładów nie można już
 const AUTO_RESULT_REFRESH_MIN_INTERVAL_MS = 3 * 60 * 1000;
 const RESULT_FETCH_AFTER_KICKOFF_MS = 2 * 60 * 60 * 1000;
 const FINISHED_STATUSES = new Set(['FT', 'AET', 'PEN']);
+
+type FixtureWinner = 'home' | 'away';
+
+type ApiScorePart = {
+  home?: number | null;
+  away?: number | null;
+};
+
+type ApiTeamsPart = {
+  home?: { name?: string; winner?: boolean | null };
+  away?: { name?: string; winner?: boolean | null };
+};
+
+type ApiScoreBreakdown = {
+  fulltime?: ApiScorePart;
+  extratime?: ApiScorePart;
+  penalty?: ApiScorePart;
+};
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -239,8 +266,7 @@ function playerIdsFromSnapshot(snapshot: SnapshotRecord) {
     .filter((id): id is string => Boolean(id));
 }
 
-// Temporary guard for cloud leagues created before migration 0002 fixed this fixture date.
-function applyCapeVerdeSaudiArabiaDateCorrection(snapshot: SnapshotRecord) {
+function applyKnownFixtureDateCorrections(snapshot: SnapshotRecord) {
   let changed = false;
   for (const fixture of snapshot.fixtures) {
     if (
@@ -253,8 +279,44 @@ function applyCapeVerdeSaudiArabiaDateCorrection(snapshot: SnapshotRecord) {
       fixture.date = '2026-06-27';
       changed = true;
     }
+    if (
+      fixture.id === 'R32_84' &&
+      fixture.homeTeam === 'Spain' &&
+      fixture.awayTeam === 'Austria' &&
+      fixture.date === '2026-07-03' &&
+      fixture.utcTime === '19:00'
+    ) {
+      fixture.date = '2026-07-02';
+      changed = true;
+    }
   }
   return changed;
+}
+
+function applyKnockoutFixtureUpdates(snapshot: SnapshotRecord) {
+  const updates = buildKnockoutFixtureUpdates(snapshot.fixtures);
+  if (updates.length === 0) return false;
+
+  const fixtureById = new Map(
+    snapshot.fixtures
+      .map((fixture) => (typeof fixture.id === 'string' ? [fixture.id, fixture] as const : null))
+      .filter((entry): entry is readonly [string, SnapshotFixtureRecord] => entry != null),
+  );
+
+  for (const update of updates) {
+    const fixture = fixtureById.get(update.id);
+    if (!fixture) continue;
+    fixture.homeTeam = update.homeTeam;
+    fixture.awayTeam = update.awayTeam;
+  }
+
+  return true;
+}
+
+function applyFixtureMaintenance(snapshot: SnapshotRecord) {
+  const scheduleChanged = applyKnownFixtureDateCorrections(snapshot);
+  const bracketChanged = applyKnockoutFixtureUpdates(snapshot);
+  return scheduleChanged || bracketChanged;
 }
 
 function timestampValue(value: unknown) {
@@ -337,6 +399,41 @@ function scoreOutcome(homeScore: number, awayScore: number) {
   return 'draw';
 }
 
+function hasApiScore(score: ApiScorePart | undefined): score is { home: number; away: number } {
+  return typeof score?.home === 'number' && typeof score.away === 'number';
+}
+
+function apiScoreWinner(score: ApiScorePart | undefined): FixtureWinner | undefined {
+  if (!hasApiScore(score) || score.home === score.away) return undefined;
+  return score.home > score.away ? 'home' : 'away';
+}
+
+function apiTeamsWinner(teams: ApiTeamsPart | undefined): FixtureWinner | undefined {
+  if (teams?.home?.winner === true && teams.away?.winner === false) return 'home';
+  if (teams?.away?.winner === true && teams.home?.winner === false) return 'away';
+  return undefined;
+}
+
+function apiMatchWinner(
+  teams: ApiTeamsPart | undefined,
+  goals: ApiScorePart | undefined,
+  score: ApiScoreBreakdown | undefined,
+): FixtureWinner | undefined {
+  return (
+    apiTeamsWinner(teams) ??
+    apiScoreWinner(score?.penalty) ??
+    apiScoreWinner(score?.extratime) ??
+    apiScoreWinner(goals) ??
+    apiScoreWinner(score?.fulltime)
+  );
+}
+
+function reverseWinner(winner: FixtureWinner | undefined): FixtureWinner | undefined {
+  if (winner === 'home') return 'away';
+  if (winner === 'away') return 'home';
+  return undefined;
+}
+
 function numericValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -379,8 +476,9 @@ async function fetchMatchResultFromApi(
 
     const entries = await apiFootballGet(url, apiKey);
     for (const entry of entries as Array<Record<string, unknown>>) {
-      const teams = entry.teams as { home?: { name?: string }; away?: { name?: string } } | undefined;
-      const goals = entry.goals as { home?: number; away?: number } | undefined;
+      const teams = entry.teams as ApiTeamsPart | undefined;
+      const goals = entry.goals as ApiScorePart | undefined;
+      const score = entry.score as ApiScoreBreakdown | undefined;
       const fixture = entry.fixture as { status?: { short?: string } } | undefined;
       const apiHomeTeam = teams?.home?.name ?? '';
       const apiAwayTeam = teams?.away?.name ?? '';
@@ -392,14 +490,17 @@ async function fetchMatchResultFromApi(
       if (!FINISHED_STATUSES.has(status)) {
         return { kind: 'not_finished', status, matchedDate: searchDate };
       }
-      if (goals?.home == null || goals?.away == null) {
+      const regularTimeScore = hasApiScore(score?.fulltime) ? score.fulltime : goals;
+      if (!hasApiScore(regularTimeScore)) {
         return { kind: 'missing_score', status, matchedDate: searchDate };
       }
 
+      const winner = apiMatchWinner(teams, goals, score);
       return {
         kind: 'finished',
-        homeScore: reversedMatch ? goals.away : goals.home,
-        awayScore: reversedMatch ? goals.home : goals.away,
+        homeScore: reversedMatch ? regularTimeScore.away : regularTimeScore.home,
+        awayScore: reversedMatch ? regularTimeScore.home : regularTimeScore.away,
+        winnerTeam: reversedMatch ? reverseWinner(winner) : winner,
         status,
         matchedDate: searchDate,
       };
@@ -710,7 +811,7 @@ async function createLeague(request: Request, env: Env) {
   if (!validateSnapshot(body.snapshot)) {
     return errorResponse(400, 'Snapshot must include players, fixtures, odds, bets, scores and matchOdds arrays.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(body.snapshot);
+  applyFixtureMaintenance(body.snapshot);
 
   const leagueId = randomToken(6);
   const hostCode = randomToken(8);
@@ -763,7 +864,7 @@ async function fetchSnapshot(request: Request, env: Env, leagueId: string) {
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
-  const scheduleChanged = applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+  const scheduleChanged = applyFixtureMaintenance(snapshot);
 
   let responseLeague = league;
   let responseSnapshot = snapshot;
@@ -782,7 +883,7 @@ async function fetchSnapshot(request: Request, env: Env, leagueId: string) {
         if (!validateSnapshot(latestSnapshot)) {
           return errorResponse(500, 'Stored league snapshot is invalid.');
         }
-        applyCapeVerdeSaudiArabiaDateCorrection(latestSnapshot);
+        applyFixtureMaintenance(latestSnapshot);
         responseLeague = latestLeague;
         responseSnapshot = latestSnapshot;
         updatedAt = latestLeague.updated_at;
@@ -813,7 +914,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
   if (!validateSnapshot(body.snapshot)) {
     return errorResponse(400, 'Snapshot must include players, fixtures, odds, bets, scores and matchOdds arrays.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(body.snapshot);
+  applyFixtureMaintenance(body.snapshot);
   if (body.baseRevision !== league.revision) {
     return jsonResponse({
       error: 'Cloud snapshot changed since the last sync.',
@@ -824,7 +925,7 @@ async function updateSnapshot(request: Request, env: Env, leagueId: string) {
   const snapshot = body.snapshot;
   const cloudSnapshot = JSON.parse(league.snapshot_json) as unknown;
   if (validateSnapshot(cloudSnapshot)) {
-    applyCapeVerdeSaudiArabiaDateCorrection(cloudSnapshot);
+    applyFixtureMaintenance(cloudSnapshot);
     mergePlayerPresence(snapshot, cloudSnapshot);
     mergeHiddenFixtureBetsFromCloud(snapshot, cloudSnapshot);
   }
@@ -931,7 +1032,7 @@ async function updatePlayerBetFromBody(
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+  applyFixtureMaintenance(snapshot);
 
   const playerExists = snapshot.players.some((player) => player.id === auth.playerId);
   if (!playerExists) {
@@ -1035,7 +1136,7 @@ async function updateHostBetFromBody(
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+  applyFixtureMaintenance(snapshot);
 
   const playerExists = snapshot.players.some((player) => player.id === body.playerId);
   if (!playerExists) {
@@ -1136,7 +1237,7 @@ async function deleteHostBetFromBody(
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+  applyFixtureMaintenance(snapshot);
 
   const fixture = snapshot.fixtures.find((entry) => entry.id === body.fixtureId);
   if (!fixture) {
@@ -1214,7 +1315,7 @@ async function updateFixtureBetVisibilityFromBody(
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+  applyFixtureMaintenance(snapshot);
 
   const fixture = snapshot.fixtures.find((entry) => entry.id === fixtureId);
   if (!fixture) {
@@ -1265,7 +1366,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+  applyFixtureMaintenance(snapshot);
 
   const now = Date.now();
   const lastCheckedAt = timestampValue(snapshot.autoResultsLastCheckedAt);
@@ -1328,7 +1429,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
     if (!validateSnapshot(latestSnapshot)) {
       return errorResponse(500, 'Stored league snapshot is invalid.');
     }
-    applyCapeVerdeSaudiArabiaDateCorrection(latestSnapshot);
+    applyFixtureMaintenance(latestSnapshot);
 
     return jsonResponse({
       ...snapshotResponseFields(
@@ -1391,6 +1492,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
       fixture.status = 'locked';
       fixture.homeScore = result.homeScore;
       fixture.awayScore = result.awayScore;
+      fixture.winnerTeam = result.winnerTeam;
       recalculateFixtureScores(snapshot, fixture);
       lockedFixtureIds.push(fixture.id as string);
     } catch (err) {
@@ -1401,6 +1503,8 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
       });
     }
   }
+
+  applyKnockoutFixtureUpdates(snapshot);
 
   if (lockedFixtureIds.length === 0) {
     const skippedReason =
@@ -1461,7 +1565,7 @@ async function rotatePlayerCodes(request: Request, env: Env, leagueId: string) {
   if (!validateSnapshot(snapshot)) {
     return errorResponse(500, 'Stored league snapshot is invalid.');
   }
-  applyCapeVerdeSaudiArabiaDateCorrection(snapshot);
+  applyFixtureMaintenance(snapshot);
 
   const now = Date.now();
   const playerCodes = await regeneratePlayerCodes(

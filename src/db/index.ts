@@ -8,6 +8,7 @@ export interface Player {
 }
 
 export type FixtureStatus = 'upcoming' | 'locked';
+export type FixtureWinner = 'home' | 'away';
 
 export interface Fixture {
   id: string;
@@ -21,6 +22,7 @@ export interface Fixture {
   status: FixtureStatus;
   homeScore?: number;
   awayScore?: number;
+  winnerTeam?: FixtureWinner;
   num?: number; // match number for knockout
   hideBetsUntilKickoff?: boolean;
 }
@@ -137,6 +139,20 @@ export class TypowankoDb extends Dexie {
     this.version(5).stores({
       hiddenBets: '++id, [playerId+fixtureId], fixtureId, playerId',
     });
+    this.version(6)
+      .stores({})
+      .upgrade(async (tx) => {
+        const fixtures = tx.table('fixtures');
+        const spainAustria = await fixtures.get('R32_84');
+        if (
+          spainAustria?.homeTeam === 'Spain' &&
+          spainAustria?.awayTeam === 'Austria' &&
+          spainAustria.date === '2026-07-03' &&
+          spainAustria.utcTime === '19:00'
+        ) {
+          await fixtures.update('R32_84', { date: '2026-07-02' });
+        }
+      });
   }
 }
 

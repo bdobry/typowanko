@@ -207,7 +207,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       if (stored) {
         applyStoredSession(stored);
         if (stored.role === 'host') {
-          await seedFixtures();
+          const updatedFixtureIds = await seedFixtures();
+          if (!cancelled && updatedFixtureIds.length > 0) {
+            setPending(true);
+          }
         }
         if (!cancelled) setReady(true);
         return;
@@ -323,6 +326,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setError(null);
     setNotice(null);
     try {
+      await seedFixtures();
       const snapshot = await exportSnapshot();
       downloadSnapshot(snapshot, 'pre-sync-backup');
       const response = await createLeague(snapshot);
@@ -385,6 +389,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         if (revision == null) {
           throw new Error('Brak lokalnej rewizji sync. Zaloguj się Host ID ponownie.');
         }
+        await seedFixtures();
         const snapshot = await exportSnapshot();
         let snapshotToStore = snapshot;
         let response;
@@ -500,6 +505,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (syncing || (role === 'host' && pending)) return;
 
     const now = Date.now();
+    await seedFixtures();
     const localSnapshot = await exportSnapshot();
     const shouldRefreshResults = hasAutoResultCandidate(localSnapshot, now);
     const shouldRevealHiddenBets = role !== 'local-host' && hasStartedHiddenFixture(localSnapshot, now);

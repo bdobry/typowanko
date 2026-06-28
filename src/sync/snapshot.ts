@@ -9,6 +9,8 @@ import {
   type ScoreEntry,
   type TypowankoDb,
 } from '../db';
+import { applyKnownFixtureCorrections } from '../utils/fixtureCorrections';
+import { applyKnockoutFixtureUpdates } from '../utils/knockoutBracket';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -25,6 +27,10 @@ export interface TypowankoSnapshot {
 }
 
 const LAST_SYNCED_SNAPSHOT_PREFIX = 'typowankoLastSyncedSnapshot:';
+
+function normalizeFixtures(fixtures: Fixture[]) {
+  return applyKnockoutFixtureUpdates(applyKnownFixtureCorrections(fixtures));
+}
 
 export function saveLastSyncedSnapshot(leagueId: string, snapshot: TypowankoSnapshot) {
   try {
@@ -63,7 +69,7 @@ export async function exportSnapshot(sourceDb: TypowankoDb = db): Promise<Typowa
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     exportedAt: Date.now(),
     players,
-    fixtures,
+    fixtures: normalizeFixtures(fixtures),
     odds,
     bets,
     scores,
@@ -76,6 +82,8 @@ export async function importSnapshot(
   targetDb: TypowankoDb = db,
   hiddenBets: HiddenBet[] = [],
 ) {
+  snapshot.fixtures = normalizeFixtures(snapshot.fixtures);
+
   await targetDb.transaction(
     'rw',
     [

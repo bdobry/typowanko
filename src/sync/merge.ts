@@ -50,6 +50,7 @@ function comparableFixture(fixture: Fixture | undefined) {
     status: fixture.status,
     homeScore: fixture.homeScore ?? null,
     awayScore: fixture.awayScore ?? null,
+    winnerTeam: fixture.winnerTeam ?? null,
     num: fixture.num ?? null,
     hideBetsUntilKickoff: fixture.hideBetsUntilKickoff ?? false,
   };
