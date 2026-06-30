@@ -114,6 +114,37 @@ function resultStatusTooltip(fixture: Fixture, hasStarted: boolean) {
   );
 }
 
+function fixtureAdvancingTeam(
+  fixture: Pick<Fixture, 'status' | 'homeScore' | 'awayScore' | 'winnerTeam' | 'homeTeam' | 'awayTeam' | 'num'>,
+) {
+  if (
+    fixture.status !== 'locked' ||
+    fixture.num == null ||
+    fixture.homeScore == null ||
+    fixture.awayScore == null
+  ) {
+    return null;
+  }
+
+  if (fixture.winnerTeam === 'home') return fixture.homeTeam;
+  if (fixture.winnerTeam === 'away') return fixture.awayTeam;
+  if (fixture.homeScore > fixture.awayScore) return fixture.homeTeam;
+  if (fixture.awayScore > fixture.homeScore) return fixture.awayTeam;
+  return null;
+}
+
+function advancementIcon() {
+  return (
+    <span
+      aria-label="awans"
+      title="Awans"
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border border-gray-400 text-xs font-semibold leading-none text-gray-500"
+    >
+      ↑
+    </span>
+  );
+}
+
 function pluralizePeople(count: number) {
   if (count === 1) return 'osoba';
   if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14)) {
@@ -569,6 +600,7 @@ export function Fixtures() {
                   : betCount > 0
                   ? 'text-green-500'
                   : 'text-gray-300';
+              const advancingTeam = fixtureAdvancingTeam(f);
               return (
                 <div
                   key={f.id}
@@ -589,8 +621,9 @@ export function Fixtures() {
                         )}
                       </div>
                       <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
-                        <span className="min-w-0 justify-self-start break-words text-gray-900 font-semibold leading-tight sm:justify-self-auto sm:break-normal">
-                          {displayTeamName(f.homeTeam)}
+                        <span className="inline-flex min-w-0 flex-wrap items-center gap-1 justify-self-start text-gray-900 font-semibold leading-tight sm:justify-self-auto">
+                          <span className="min-w-0 break-words sm:break-normal">{displayTeamName(f.homeTeam)}</span>
+                          {advancingTeam === f.homeTeam && advancementIcon()}
                         </span>
                         {f.status === 'locked' ? (
                           <span className="justify-self-center text-green-600 font-bold font-mono text-sm whitespace-nowrap px-1 sm:justify-self-auto">
@@ -599,8 +632,9 @@ export function Fixtures() {
                         ) : (
                           <span className="justify-self-center text-gray-400 font-mono text-sm whitespace-nowrap px-1 sm:justify-self-auto">vs</span>
                         )}
-                        <span className="min-w-0 justify-self-end break-words text-right text-gray-900 font-semibold leading-tight sm:justify-self-auto sm:break-normal sm:text-left">
-                          {displayTeamName(f.awayTeam)}
+                        <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-1 justify-self-end text-right text-gray-900 font-semibold leading-tight sm:justify-self-auto sm:justify-start sm:text-left">
+                          <span className="min-w-0 break-words sm:break-normal">{displayTeamName(f.awayTeam)}</span>
+                          {advancingTeam === f.awayTeam && advancementIcon()}
                         </span>
                       </div>
                     </div>

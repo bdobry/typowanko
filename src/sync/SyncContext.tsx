@@ -45,8 +45,8 @@ import {
   type StoredSession,
   type SyncContextValue,
 } from './syncContextValue';
-import { refreshLocalCompletedResults } from '../utils/autoResults';
-import { fixtureAutoResultEligibleAtMs, hasFixtureStarted } from '../utils/fixtureTime';
+import { needsResultRefresh, refreshLocalCompletedResults } from '../utils/autoResults';
+import { hasFixtureStarted } from '../utils/fixtureTime';
 
 const SESSION_STORAGE_KEY = 'typowankoCloudSession';
 const AUTO_SYNC_DELAY_MS = 1500;
@@ -110,12 +110,7 @@ function shouldUseHostLocalResultFallback(response: ResultRefreshResponse) {
 }
 
 function hasAutoResultCandidate(snapshot: Pick<TypowankoSnapshot, 'fixtures'>, now: number) {
-  return snapshot.fixtures.some(
-    (fixture) =>
-      fixture.status !== 'locked' &&
-      Number.isFinite(fixtureAutoResultEligibleAtMs(fixture)) &&
-      now >= fixtureAutoResultEligibleAtMs(fixture),
-  );
+  return snapshot.fixtures.some((fixture) => needsResultRefresh(fixture, now));
 }
 
 function hasStartedHiddenFixture(snapshot: Pick<TypowankoSnapshot, 'fixtures'>, now: number) {

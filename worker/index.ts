@@ -338,6 +338,21 @@ function canFetchFixtureResult(fixture: SnapshotFixtureRecord, now: number) {
   return now >= fixtureKickoffMs(fixture) + RESULT_FETCH_AFTER_KICKOFF_MS;
 }
 
+function needsWinnerBackfill(fixture: SnapshotFixtureRecord, now: number) {
+  const homeScore = numericValue(fixture.homeScore);
+  const awayScore = numericValue(fixture.awayScore);
+  return (
+    fixture.status === 'locked' &&
+    typeof fixture.num === 'number' &&
+    homeScore != null &&
+    awayScore != null &&
+    homeScore === awayScore &&
+    fixture.winnerTeam !== 'home' &&
+    fixture.winnerTeam !== 'away' &&
+    canFetchFixtureResult(fixture, now)
+  );
+}
+
 function addUtcDays(date: string, days: number) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
@@ -1392,7 +1407,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
 
   const candidates = snapshot.fixtures.filter(
     (fixture) =>
-      fixture.status !== 'locked' &&
+      (fixture.status !== 'locked' || needsWinnerBackfill(fixture, now)) &&
       typeof fixture.id === 'string' &&
       typeof fixture.homeTeam === 'string' &&
       typeof fixture.awayTeam === 'string' &&
@@ -1449,6 +1464,7 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
   }
 
   const lockedFixtureIds: string[] = [];
+  const winnerUpdatedFixtureIds: string[] = [];
   const failedFixtures: ResultRefreshFixtureIssue[] = [];
   const unresolvedFixtures: ResultRefreshFixtureIssue[] = [];
   for (const fixture of candidates) {
@@ -1489,6 +1505,21 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
         continue;
       }
 
+      if (fixture.status === 'locked') {
+        if (!result.winnerTeam) {
+          unresolvedFixtures.push({
+            ...fixtureIssueBase,
+            reason: 'missing_score',
+            status: result.status,
+          });
+          continue;
+        }
+
+        fixture.winnerTeam = result.winnerTeam;
+        winnerUpdatedFixtureIds.push(fixture.id as string);
+        continue;
+      }
+
       fixture.status = 'locked';
       fixture.homeScore = result.homeScore;
       fixture.awayScore = result.awayScore;
@@ -1506,7 +1537,8 @@ async function refreshCompletedResults(request: Request, env: Env, leagueId: str
 
   applyKnockoutFixtureUpdates(snapshot);
 
-  if (lockedFixtureIds.length === 0) {
+  const changedFixtureIds = [...lockedFixtureIds, ...winnerUpdatedFixtureIds];
+  if (changedFixtureIds.length === 0) {
     const skippedReason =
       failedFixtures.length > 0
         ? 'api_error'
