@@ -72,14 +72,20 @@ function FormStreak({ row }: { row: LeaderboardRow }) {
   return <FormDots entries={row.recentForm} />;
 }
 
+function repeatCountLabel(count: number) {
+  return count === 1 ? '1 raz' : `${count} razy`;
+}
+
 function StreakCard({
   title,
   streak,
   leaderIds,
+  showRepeatCount = false,
 }: {
   title: string;
   streak: LeaderboardStreak;
   leaderIds: ReadonlySet<string>;
+  showRepeatCount?: boolean;
 }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
@@ -93,8 +99,13 @@ function StreakCard({
         <div className="mt-3 space-y-2">
           {streak.winners.map((winner) => (
             <div key={winner.player.id} className="flex min-w-0 items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-sm font-semibold text-gray-900">
-                {formatPlayerName(winner.player, leaderIds)}
+              <span className="flex min-w-0 items-baseline gap-1 text-sm font-semibold text-gray-900">
+                <span className="truncate">{formatPlayerName(winner.player, leaderIds)}</span>
+                {showRepeatCount && winner.occurrences > 1 && (
+                  <span className="shrink-0 text-xs font-medium text-gray-500">
+                    ({repeatCountLabel(winner.occurrences)})
+                  </span>
+                )}
               </span>
               <span className="shrink-0">
                 <FormDots entries={winner.entries} />
@@ -253,7 +264,12 @@ export function Leaderboard() {
             </div>
             <div className="grid gap-3 border-t border-gray-100 p-4 md:grid-cols-3">
               <StreakCard title="Najdłuższa seria punktowa" streak={data.streaks.points} leaderIds={leaderIds} />
-              <StreakCard title="Najdłuższa seria dokładnych" streak={data.streaks.exact} leaderIds={leaderIds} />
+              <StreakCard
+                title="Najdłuższa seria dokładnych"
+                streak={data.streaks.exact}
+                leaderIds={leaderIds}
+                showRepeatCount
+              />
               <StreakCard title="Najdłuższa seria pudeł" streak={data.streaks.miss} leaderIds={leaderIds} />
             </div>
           </div>

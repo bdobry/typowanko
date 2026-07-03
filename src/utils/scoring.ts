@@ -137,6 +137,7 @@ export interface LeaderboardEventGroup {
 export interface LeaderboardStreakWinner {
   player: Player;
   entries: LeaderboardFormEntry[];
+  occurrences: number;
 }
 
 export interface LeaderboardStreak {
@@ -373,41 +374,39 @@ function formEntryForFixture(
   };
 }
 
-function bestMatchingRun(entries: LeaderboardFormEntry[], predicate: (entry: LeaderboardFormEntry) => boolean) {
-  let current: LeaderboardFormEntry[] = [];
-  let best: LeaderboardFormEntry[] = [];
-
-  for (const entry of entries) {
-    if (predicate(entry)) {
-      current = [...current, entry];
-    } else {
-      if (current.length > best.length) best = current;
-      current = [];
-    }
-  }
-
-  if (current.length > best.length) best = current;
-  return best;
-}
-
-function bestMatchingRunIgnoringNeutral(
+function matchingRuns(
   entries: LeaderboardFormEntry[],
   predicate: (entry: LeaderboardFormEntry) => boolean,
-  isNeutral: (entry: LeaderboardFormEntry) => boolean,
+  isNeutral: (entry: LeaderboardFormEntry) => boolean = () => false,
 ) {
+  const runs: LeaderboardFormEntry[][] = [];
   let current: LeaderboardFormEntry[] = [];
-  let best: LeaderboardFormEntry[] = [];
+
+  const saveCurrent = () => {
+    if (current.length === 0) return;
+    runs.push(current);
+    current = [];
+  };
 
   for (const entry of entries) {
     if (predicate(entry)) {
       current = [...current, entry];
     } else if (!isNeutral(entry)) {
-      if (current.length > best.length) best = current;
-      current = [];
+      saveCurrent();
     }
   }
 
-  if (current.length > best.length) best = current;
+  saveCurrent();
+  return runs;
+}
+
+function bestRunFromRuns(runs: LeaderboardFormEntry[][]) {
+  let best: LeaderboardFormEntry[] = [];
+
+  for (const run of runs) {
+    if (run.length > best.length) best = run;
+  }
+
   return best;
 }
 
@@ -415,13 +414,14 @@ function buildStreak(
   rows: LeaderboardRow[],
   fullFormByPlayerId: Map<string, LeaderboardFormEntry[]>,
   predicate: (entry: LeaderboardFormEntry) => boolean,
-  findBestRun = bestMatchingRun,
+  findRuns = matchingRuns,
 ): LeaderboardStreak {
   let bestLength = 0;
   const winners: LeaderboardStreakWinner[] = [];
 
   for (const row of rows) {
-    const entries = findBestRun(fullFormByPlayerId.get(row.player.id) ?? [], predicate);
+    const runs = findRuns(fullFormByPlayerId.get(row.player.id) ?? [], predicate);
+    const entries = bestRunFromRuns(runs);
     if (entries.length === 0) continue;
 
     if (entries.length > bestLength) {
@@ -430,7 +430,11 @@ function buildStreak(
     }
 
     if (entries.length === bestLength) {
-      winners.push({ player: row.player, entries });
+      winners.push({
+        player: row.player,
+        entries,
+        occurrences: runs.filter((run) => run.length === entries.length).length,
+      });
     }
   }
 
@@ -1189,7 +1193,7 @@ export async function getLeaderboardData(now = Date.now()): Promise<LeaderboardD
       fullFormByPlayerId,
       (entry) => entry.result === 'miss',
       (entries, predicate) =>
-        bestMatchingRunIgnoringNeutral(entries, predicate, (entry) => entry.result === 'none'),
+        matchingRuns(entries, predicate, (entry) => entry.result === 'none'),
     ),
   };
   const topPointStreaks = buildTopPointStreaks(board, fullFormByPlayerId, fixtureOrderById, 5);
