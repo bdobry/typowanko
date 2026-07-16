@@ -127,8 +127,12 @@ function resolvedSlotTeam(fixturesByNum: Map<number, WorkingFixture>, slot: Knoc
     return null;
   }
 
-  if (source.winnerTeam === 'home') return source.homeTeam;
-  if (source.winnerTeam === 'away') return source.awayTeam;
+  if (source.winnerTeam === 'home') {
+    return slot.kind === 'winner' ? source.homeTeam : source.awayTeam;
+  }
+  if (source.winnerTeam === 'away') {
+    return slot.kind === 'winner' ? source.awayTeam : source.homeTeam;
+  }
   if (source.homeScore === source.awayScore) return null;
 
   const homeAdvanced =
